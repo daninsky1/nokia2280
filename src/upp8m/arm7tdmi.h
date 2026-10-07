@@ -66,43 +66,122 @@ enum class InstructionType {
     UNDEFINED
 };
 
-enum class DPOpcode : uint8_t {
-    AND = 0b0000u,
-    EOR = 0b0001u,
-    SUB = 0b0010u,
-    RSB = 0b0011u,
-    ADD = 0b0100u,
-    ADC = 0b0101u,
-    SBC = 0b0110u,
-    RSC = 0b0111u,
-    TST = 0b1000u,
-    TEQ = 0b1001u,
-    CMP = 0b1010u,
-    CMN = 0b1011u,
-    ORR = 0b1100u,
-    MOV = 0b1101u,
-    BIC = 0b1110u,
-    MVN = 0b1111u
+enum class Mnemonics {
+    AND,        // Data processing instructions
+    EOR,
+    SUB,
+    RSB,
+    ADD,
+    ADC,
+    SBC,
+    RSC,
+    TST,
+    TEQ,
+    CMP,
+    CMN,
+    ORR,
+    MOV,
+    BIC,
+    MVN,
+    MLA,        // Multiply instructions
+    MUL,
+    SMLA,
+    SMLAD,
+    SMLAL,
+    SMLAL_XY,
+    SMLALD,
+    SMLAW,
+    SMLSD,
+    SMLSLD,
+    SMMLA,
+    SMMLS,
+    SMMUL,
+    SMUAD,
+    SMUL,
+    SMULL,
+    SMULW,
+    SMUSD,
+    UMAAL,
+    UMLAL,
+    UMULL,
+    MRS,        // Status register access instructions
+    MSR,
+    CPS,
+    SETEND,
+    LDR,        // Load and store instructions
+    LDRB,
+    LDRBT,
+    LDRD,
+    LDREX,
+    LDRH,
+    LDRSB,
+    LDRSH,
+    LDRT,
+    STR,
+    STRB,
+    STRBT,
+    STRD,
+    STREX,
+    STRH,
+    STRT,
+    LDM,        // Load and store multiple
+    STM,
+    B_BL,       // Branch instructions
+    BX,
+    // BLX: Version 5 and above.
+    // BXJ: Version 6 and above, plus ARMv5TEJ.
+    SWP,        // Semaphore instructions
+    SWPB,
+    BKPT,       // Exception-generating instructions
+    SWI,
+    CDP,        // Coprocessor instructions
+    LDC,
+    MCR,
+    MCRR,
+    MRC,
+    MRRC,
+    STC,
 };
 
-enum class CondOpcode : uint8_t {
-    EQ    = 0b0000u, // Z == 1
-    NE    = 0b0001u, // Z == 0
-    CS_HS = 0b0010u, // C == 1
-    CC_LO = 0b0011u, // C == 0
-    MI    = 0b0100u, // N == 1
-    PL    = 0b0101u, // N == 0
-    VS    = 0b0110u, // V == 1
-    VC    = 0b0111u, // V == 0
-    HI    = 0b1000u, // C == 1 && Z == 0
-    LS    = 0b1001u, // C == 0 || Z == 1
-    GE    = 0b1010u, // N == V
-    LT    = 0b1011u, // N != V
-    GT    = 0b1100u, // Z == 0 && N == V
-    LE    = 0b1101u, // Z == 1 || N != V
-    AL    = 0b1110u, // Always execute
-    UNPREDICTABLE = 0b1111u  // Unpredictable prior to ARMv5
-};
+namespace Opcode {
+    enum class CondOpcode : uint8_t {
+        EQ    = 0b0000u, // Z == 1
+        NE    = 0b0001u, // Z == 0
+        CS_HS = 0b0010u, // C == 1
+        CC_LO = 0b0011u, // C == 0
+        MI    = 0b0100u, // N == 1
+        PL    = 0b0101u, // N == 0
+        VS    = 0b0110u, // V == 1
+        VC    = 0b0111u, // V == 0
+        HI    = 0b1000u, // C == 1 && Z == 0
+        LS    = 0b1001u, // C == 0 || Z == 1
+        GE    = 0b1010u, // N == V
+        LT    = 0b1011u, // N != V
+        GT    = 0b1100u, // Z == 0 && N == V
+        LE    = 0b1101u, // Z == 1 || N != V
+        AL    = 0b1110u, // Always execute
+        UNPREDICTABLE = 0b1111u  // Unpredictable prior to ARMv5
+    };
+
+    enum class DP : uint8_t {
+        AND = 0b0000u,
+        EOR = 0b0001u,
+        SUB = 0b0010u,
+        RSB = 0b0011u,
+        ADD = 0b0100u,
+        ADC = 0b0101u,
+        SBC = 0b0110u,
+        RSC = 0b0111u,
+        TST = 0b1000u,
+        TEQ = 0b1001u,
+        CMP = 0b1010u,
+        CMN = 0b1011u,
+        ORR = 0b1100u,
+        MOV = 0b1101u,
+        BIC = 0b1110u,
+        MVN = 0b1111u
+    };
+}
 
 struct DecodedInstruction {
     InstructionType type;

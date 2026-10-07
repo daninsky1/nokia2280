@@ -199,8 +199,8 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
         // Load/store multiple
         instruction.type = InstructionType::LOAD_STORE;
         return instruction;
-    }
         break;
+    }
     case IEnc::Class::BRANCH: {
         instruction.type = InstructionType::BRANCH;
         auto l = (rawInstruction & IEnc::C101_BRANCH::L_FLAG);
