@@ -6,14 +6,16 @@
 
 #include <cstdint>
 #include <string>
+#include <variant>
+#include <vector>
 
 enum class Endianness { LITTLE, BIG };
 
 namespace AddressSpace {
     constexpr uint32_t MIN = 0x00000000u;
-    constexpr uint32_t MAX = 0xFFFFFFFFu;
-    constexpr uint32_t W_ALIGN_MASK = 0b11u;
-    constexpr uint32_t HW_ALIGN_MASK = 0b1u;
+    constexpr uint32_t MAX = 0xFFFFFFFF;
+    constexpr uint32_t W_ALIGN_MASK = 0b11;
+    constexpr uint32_t HW_ALIGN_MASK = 0b1;
 
 }
 
@@ -66,7 +68,7 @@ enum class InstructionType {
     UNDEFINED
 };
 
-enum class Mnemonics {
+enum class Mnemonic {
     AND,        // Data processing instructions
     EOR,
     SUB,
@@ -144,90 +146,43 @@ enum class Mnemonics {
 };
 
 namespace Opcode {
-    enum class CondOpcode : uint8_t {
-        EQ    = 0b0000u, // Z == 1
-        NE    = 0b0001u, // Z == 0
-        CS_HS = 0b0010u, // C == 1
-        CC_LO = 0b0011u, // C == 0
-        MI    = 0b0100u, // N == 1
-        PL    = 0b0101u, // N == 0
-        VS    = 0b0110u, // V == 1
-        VC    = 0b0111u, // V == 0
-        HI    = 0b1000u, // C == 1 && Z == 0
-        LS    = 0b1001u, // C == 0 || Z == 1
-        GE    = 0b1010u, // N == V
-        LT    = 0b1011u, // N != V
-        GT    = 0b1100u, // Z == 0 && N == V
-        LE    = 0b1101u, // Z == 1 || N != V
-        AL    = 0b1110u, // Always execute
-        UNPREDICTABLE = 0b1111u  // Unpredictable prior to ARMv5
+    enum class Cond : uint8_t {
+        EQ    = 0b0000, // Z == 1
+        NE    = 0b0001, // Z == 0
+        CS_HS = 0b0010, // C == 1
+        CC_LO = 0b0011, // C == 0
+        MI    = 0b0100, // N == 1
+        PL    = 0b0101, // N == 0
+        VS    = 0b0110, // V == 1
+        VC    = 0b0111, // V == 0
+        HI    = 0b1000, // C == 1 && Z == 0
+        LS    = 0b1001, // C == 0 || Z == 1
+        GE    = 0b1010, // N == V
+        LT    = 0b1011, // N != V
+        GT    = 0b1100, // Z == 0 && N == V
+        LE    = 0b1101, // Z == 1 || N != V
+        AL    = 0b1110, // Always execute
+        UNCONDITIONAL = 0b1111u  // Unpredictable prior to ARMv5
     };
 
     enum class DP : uint8_t {
-        AND = 0b0000u,
-        EOR = 0b0001u,
-        SUB = 0b0010u,
-        RSB = 0b0011u,
-        ADD = 0b0100u,
-        ADC = 0b0101u,
-        SBC = 0b0110u,
-        RSC = 0b0111u,
-        TST = 0b1000u,
-        TEQ = 0b1001u,
-        CMP = 0b1010u,
-        CMN = 0b1011u,
-        ORR = 0b1100u,
-        MOV = 0b1101u,
-        BIC = 0b1110u,
-        MVN = 0b1111u
+        AND = 0b0000,
+        EOR = 0b0001,
+        SUB = 0b0010,
+        RSB = 0b0011,
+        ADD = 0b0100,
+        ADC = 0b0101,
+        SBC = 0b0110,
+        RSC = 0b0111,
+        TST = 0b1000,
+        TEQ = 0b1001,
+        CMP = 0b1010,
+        CMN = 0b1011,
+        ORR = 0b1100,
+        MOV = 0b1101,
+        BIC = 0b1110,
+        MVN = 0b1111
     };
-}
-
-struct DecodedInstruction {
-    InstructionType type;
-    uint32_t rawInstruction;
-
-    uint8_t cond;   // 31-28 - condition
-    uint8_t iclazz;  // 27-24 - class
-    uint8_t rn;     // Condition, Register number
-    uint8_t rd;     // Condition, Register destination
-    uint8_t rm;     // Condition, Register m
-
-    bool setFlags;
-};
-
-enum class ProcessorMode : uint8_t {
-    USER        = 0b10000u,
-    FIQ         = 0b10001u,
-    IRQ         = 0b10010u,
-    SUPERVISOR  = 0b10011u,
-    ABORT       = 0b10111u,
-    UNDEFINED   = 0b11011u,
-    SYSTEM      = 0b11111u,
-};
-
-std::string exceptionDescription(Exception exception);
-
-// CPSR / SPSR Flags
-namespace PSR {
-    constexpr uint32_t N = 1u << 31;    // Negative, condition code, user-writable bit
-    constexpr uint32_t Z = 1u << 30;    // Zero,     condition code, user-writable bit
-    constexpr uint32_t C = 1u << 29;    // Carry,    condition code, user-writable bit
-    constexpr uint32_t V = 1u << 28;    // OVerflow, condition code, user-writable bit
-    // 27 Q Prior to ARMv5 must be treated as reserved bit
-    // 26-25 RESERVED
-    // 24 J Prior to ARMv5TEJ must be treated as reserved bit
-    // 19-16 GE[3:0] Prior to ARMv6 must be treated as reserved bit
-    // 15-10 RESERVED
-    // 9 E Prior to ARMv6 must be treated as reserved bit
-    // 8 A Prior to ARMv6 must be treated as reserved bit
-    constexpr uint32_t I = 1u << 7;     // Disables IRQ interrupt, Privileged bit
-    constexpr uint32_t F = 1u << 6;     // Disables FIQ interrupt, Privileged bit
-    constexpr uint32_t T = 1u << 5;     // Select the current instruction set, Execution state bit
-    // 4-0 M[4:0]
-    constexpr uint32_t MODE_MASK = 0b11111u;
-
-    constexpr uint32_t RESERVED_MASK = 0b11111111111111111111100000000u;
 }
 
 /*
@@ -285,71 +240,45 @@ namespace IEnc {
     // Common instruction fields
     constexpr uint32_t COND_SHIFT  = 28;
     constexpr uint32_t COND_MASK   = 0b1111u << COND_SHIFT;
-    constexpr uint32_t CLAZZ_SHIFT = 25;
-    constexpr uint32_t CLAZZ_MASK  = 0b111u << CLAZZ_SHIFT;
-    constexpr uint32_t BIT24       = 24;
-    constexpr uint32_t BIT4        = 4;
+    constexpr uint32_t CLASS_SHIFT = 25;
+    constexpr uint32_t CLASS_MASK  = 0b111u << CLASS_SHIFT;
 
     namespace Cond {
         constexpr uint8_t UNCONDITIONAL_VALUE = 0b1111;
-    };
+    }
 
     enum class Class : uint8_t {
-        C000        = 0b000,
-        C001        = 0b001,
-        LSIO        = 0b010,    // Load/store immediate offset
-        C011        = 0b011,
-        LSMU        = 0b100,    // Load/store multiple
-        BRANCH      = 0b101,    // Branch and branch with link
-        COPLSDRT    = 0b110,    // Coprocessor load/store and double register transfers
-        C111        = 0b111,
+        C000     = 0b000,
+        C001     = 0b001,
+        LSIO     = 0b010,    // Load/store immediate offset
+        C011     = 0b011,
+        LSMU     = 0b100,    // Load/store multiple
+        BRANCH   = 0b101,    // Branch and branch with link
+        COPLSDRT = 0b110,    // Coprocessor load/store and double register transfers
+        C111     = 0b111,
     };
 
     namespace C000 {
         // Decode patterns
         constexpr uint32_t MULT_DEC_MASK = (0b1 << 7) | (0b1 << 4);
-        constexpr uint32_t MULT_VALUE  = MULT_DEC_MASK;     // Multiplies/Extra load/store instructions decode pattern
+        constexpr uint32_t MULT_VALUE    = MULT_DEC_MASK;     // Multiplies/Extra load/store instructions decode pattern
 
         constexpr uint32_t MISC_DEC_MASK = (0b11 << 23) | (0b1 << 20);
         constexpr uint32_t MISC_VALUE    = 0b1 << 24;     // Miscellaneous instructions decode pattern
-
-        constexpr uint32_t OPCODE_SHIFT = 21;
-        constexpr uint32_t OPCODE_MASK  = 0b1111u << OPCODE_SHIFT;
-        constexpr uint32_t S_MASK       = 0b1u << 20;
-        constexpr uint32_t RN_SHIFT = 16;
-        constexpr uint32_t RN_MASK  = 0b1111u << RN_SHIFT;
-        constexpr uint32_t RD_SHIFT = 12;
-        constexpr uint32_t RD_MASK  = 0b1111u << RD_SHIFT;
-        constexpr uint32_t RS_SHIFT = 8;
-        constexpr uint32_t RS_MASK  = 0b1111u << RS_SHIFT;
-
-
-        constexpr uint32_t SHIFT_AMOUNT_SHIFT = 7;
-        constexpr uint32_t SHIFT_AMOUNT_MASK  = 0b11u << SHIFT_AMOUNT_SHIFT;
-        constexpr uint32_t BIT7_MASK = 0b1u << 7;
-
-        constexpr uint32_t SHIFT_SHIFT = 5;
-        constexpr uint32_t SHIFT_MASK  = 0b11u << SHIFT_SHIFT;
-        constexpr uint32_t BIT4_MASK   = 0b1u << 4;
-        constexpr uint32_t RM_MASK     = 0b1111u;
-
-        // TODO: Verify if is necessary shifter mask to get shifter fields
-        constexpr uint32_t SHIFTER_MASK = 0xFFF;
     }
 
     namespace C001 {
-        constexpr uint32_t DECODE_MASK  = (0b11 << 23) | (0b11 << 20);
+        constexpr uint32_t DECODE_MASK = (0b11 << 23) | (0b11 << 20);
 
         // Move immediate to status register flags
         constexpr uint32_t MISR_VALUE = (0b10 << 23) | (0b10 << 20);  // Move immediate to status register decode pattern
-        constexpr uint32_t R_FLAG = 0b1 << 22;
         constexpr uint32_t MASK_SHIFT = 16;
         constexpr uint32_t MASK_MASK  = 0b1111u << MASK_SHIFT;
-        constexpr uint32_t SBO_SHIFT = 12;
-        constexpr uint32_t SBO_MASK  = 0b1111u << SBO_SHIFT;
+        constexpr uint32_t SBO_SHIFT  = 12;
+        constexpr uint32_t SBO_MASK   = 0b1111u << SBO_SHIFT;
 
         // Undefined instruction flags
-        constexpr uint32_t UNDEFINED_VALUE  = 0b10 << 23;       // Undefined instruction decode pattern
+        constexpr uint32_t UNDEFINED_VALUE = 0b10 << 23;       // Undefined instruction decode pattern
 
         // Data processing immediate flags
         constexpr uint32_t OPCODE_SHIFT = 21;
@@ -361,42 +290,42 @@ namespace IEnc {
         // Common flags
         constexpr uint32_t ROTATE_SHIFT = 8;
         constexpr uint32_t ROTATE_MASK  = 0b1111u << ROTATE_SHIFT;
-        constexpr uint32_t IMMEDIATE_MASK  = 0xFF;
+        constexpr uint32_t IMMEDIATE_MASK = 0xFF;
     }
 
     namespace C010_LSIO {
-        constexpr uint32_t P_MASK  = 0b1u << 24;
-        constexpr uint32_t U_MASK  = 0b1u << 23;
-        constexpr uint32_t B_MASK  = 0b1u << 22;
-        constexpr uint32_t W_MASK  = 0b1u << 21;
-        constexpr uint32_t L_MASK  = 0b1u << 20;
+        constexpr uint32_t P_MASK = 0b1u << 24;
+        constexpr uint32_t U_MASK = 0b1u << 23;
+        constexpr uint32_t B_MASK = 0b1u << 22;
+        constexpr uint32_t W_MASK = 0b1u << 21;
+        constexpr uint32_t L_MASK = 0b1u << 20;
 
         constexpr uint32_t RN_SHIFT = 16;
         constexpr uint32_t RN_MASK  = 0b1111u << RN_SHIFT;
         constexpr uint32_t RD_SHIFT = 12;
         constexpr uint32_t RD_MASK  = 0b1111u << RD_SHIFT;
 
-        constexpr uint32_t IMMEDIATE_MASK  = 0xFFF;
+        constexpr uint32_t IMMEDIATE_MASK = 0xFFF;
     }
 
     namespace C011 {
         constexpr uint32_t ARCH_UNDEF_MASK  = (0b11111 << 20) | (0b1111 << 4);
         constexpr uint32_t ARCH_UNDEF_VALUE = (0b11111 << 20) | (0b1111 << 4);
 
-        constexpr uint32_t P_MASK  = 0b1u << 24;
-        constexpr uint32_t U_MASK  = 0b1u << 23;
-        constexpr uint32_t B_MASK  = 0b1u << 22;
-        constexpr uint32_t W_MASK  = 0b1u << 21;
-        constexpr uint32_t L_MASK  = 0b1u << 20;
+        constexpr uint32_t P_MASK = 0b1u << 24;
+        constexpr uint32_t U_MASK = 0b1u << 23;
+        constexpr uint32_t B_MASK = 0b1u << 22;
+        constexpr uint32_t W_MASK = 0b1u << 21;
+        constexpr uint32_t L_MASK = 0b1u << 20;
 
         constexpr uint32_t RN_SHIFT = 16;
         constexpr uint32_t RN_MASK  = 0b1111u << RN_SHIFT;
         constexpr uint32_t RD_SHIFT = 12;
         constexpr uint32_t RD_MASK  = 0b1111u << RD_SHIFT;
         constexpr uint32_t SHIFT_AMOUNT_SHIFT = 7;
-        constexpr uint32_t SHIFT_AMOUNT_MASK = 0b11111u << SHIFT_AMOUNT_SHIFT;
+        constexpr uint32_t SHIFT_AMOUNT_MASK  = 0b11111u << SHIFT_AMOUNT_SHIFT;
         constexpr uint32_t SHIFT_SHIFT = 5;
-        constexpr uint32_t SHIFT_MASK = 0b11u << SHIFT_SHIFT;
+        constexpr uint32_t SHIFT_MASK  = 0b11u << SHIFT_SHIFT;
 
         // Media instruction when set and load/store register offset when clear
         constexpr uint32_t MEDIA_MASK = 0b1 << 4;
@@ -405,11 +334,11 @@ namespace IEnc {
     }
 
     namespace C100_LSMU {
-        constexpr uint32_t P_FLAG  = 0b1u << 24;
-        constexpr uint32_t U_FLAG  = 0b1u << 23;
-        constexpr uint32_t S_FLAG  = 0b1u << 22;
-        constexpr uint32_t W_FLAG  = 0b1u << 21;
-        constexpr uint32_t L_FLAG  = 0b1u << 20;
+        constexpr uint32_t P_FLAG = 0b1u << 24;
+        constexpr uint32_t U_FLAG = 0b1u << 23;
+        constexpr uint32_t S_FLAG = 0b1u << 22;
+        constexpr uint32_t W_FLAG = 0b1u << 21;
+        constexpr uint32_t L_FLAG = 0b1u << 20;
 
         constexpr uint32_t RN_SHIFT = 16;
         constexpr uint32_t RN_MASK  = 0b1111 << RN_SHIFT;
@@ -418,16 +347,16 @@ namespace IEnc {
     }
 
     namespace C101_BRANCH {
-        constexpr uint32_t L_FLAG  = 0b1 << 24;
+        constexpr uint32_t L_FLAG = 0b1 << 24;
         constexpr uint32_t OFFSET_MASK = 0xFF'FF'FF;
     }
 
     namespace C110_COP {
-        constexpr uint32_t P_FLAG  = 0b1u << 24;
-        constexpr uint32_t U_FLAG  = 0b1u << 23;
-        constexpr uint32_t N_FLAG  = 0b1u << 22;
-        constexpr uint32_t W_FLAG  = 0b1u << 21;
-        constexpr uint32_t L_FLAG  = 0b1u << 20;
+        constexpr uint32_t P_FLAG = 0b1u << 24;
+        constexpr uint32_t U_FLAG = 0b1u << 23;
+        constexpr uint32_t N_FLAG = 0b1u << 22;
+        constexpr uint32_t W_FLAG = 0b1u << 21;
+        constexpr uint32_t L_FLAG = 0b1u << 20;
 
         constexpr uint32_t RN_SHIFT = 16;
         constexpr uint32_t RN_MASK  = 0b1111 << RN_SHIFT;
@@ -469,6 +398,138 @@ namespace IEnc {
         }
     }
 
+    namespace DP {
+        // Common flags
+        constexpr uint32_t I_FLAG       = 0b1u << 25;       // Distinguishes between immediate and register operands
+        constexpr uint32_t OPCODE_SHIFT = 21;
+        constexpr uint32_t OPCODE_MASK  = 0b1111u << OPCODE_SHIFT;
+        constexpr uint32_t S_FLAG       = 0b1u << 20;
+        constexpr uint32_t RN_SHIFT     = 16;
+        constexpr uint32_t RN_MASK      = 0b1111u << RN_SHIFT;
+        constexpr uint32_t RD_SHIFT     = 12;
+        constexpr uint32_t RD_MASK      = 0b1111u << RD_SHIFT;
+        // TODO: Verify if is necessary shifter mask to get shifter fields
+        constexpr uint32_t SHIFTER_MASK = 0xFFF;
+
+        // Data processing register flags
+        constexpr uint32_t RS_SHIFT     = 8;
+        constexpr uint32_t RS_MASK      = 0b1111u << RS_SHIFT;
+
+        constexpr uint32_t SHIFT_AMOUNT_SHIFT = 7;
+        constexpr uint32_t SHIFT_AMOUNT_MASK  = 0b11u << SHIFT_AMOUNT_SHIFT;
+        constexpr uint32_t BIT7_MASK = 0b1u << 7;
+        constexpr uint32_t BIT4_MASK = 0b1u << 4;
+
+        constexpr uint32_t SHIFT_SHIFT = 5;
+        constexpr uint32_t SHIFT_MASK  = 0b11u << SHIFT_SHIFT;
+        constexpr uint32_t RM_MASK     = 0b1111u;
+
+        // Data processing immediate shift flags
+
+        // Data processing immediate
+        constexpr uint32_t ROTATE_SHIFT = 8;
+        constexpr uint32_t ROTATE_MASK  = 0b1111 << ROTATE_SHIFT;
+        constexpr uint32_t IMM_MASK  = 0xFF;
+    }
+
+}
+
+// Data processing immediate shift, shifter operand data
+struct DPIS {
+    uint8_t shiftAmount;
+    uint8_t shift;
+    uint8_t rm;
+};
+
+// Data processing register shift, shifter operand data
+struct DPRS {
+    uint8_t rs;
+    uint8_t shift;
+    uint8_t rm;
+};
+
+// Data processing immediate, shifter operand data
+struct DPI {
+    uint8_t rotate;
+    uint8_t immediate;
+};
+
+using DPShifter = std::variant<
+    DPIS,
+    DPRS,
+    DPI
+>;
+
+struct DataProcessing {
+    Opcode::DP opcode;
+    bool isImmediate;
+    bool isUpdateCond;
+    uint8_t rn;
+    uint8_t rd;
+
+    DPShifter shifterOperand;
+};
+
+struct Miscellaneous {
+    // TODO: Check if miscellaneous instruction has usable fields on ARMv4T
+};
+
+using InstructionData = std::variant<
+    DataProcessing,
+    Miscellaneous
+>;
+
+struct DecodedOperation {
+    InstructionType type;
+    Mnemonic mnemonic;
+    InstructionData instructionData;
+};
+
+struct DecodedInstruction {
+    uint32_t rawInstruction;
+
+    InstructionType type;
+    Mnemonic mnemonic;
+
+    Opcode::Cond cond;   // 31-28 - condition
+    IEnc::Class clazz;  // 27-24 - class
+
+    // Data processing instruction
+    InstructionData instructionData;
+};
+
+enum class ProcessorMode : uint8_t {
+    USER        = 0b10000u,
+    FIQ         = 0b10001u,
+    IRQ         = 0b10010u,
+    SUPERVISOR  = 0b10011u,
+    ABORT       = 0b10111u,
+    UNDEFINED   = 0b11011u,
+    SYSTEM      = 0b11111u,
+};
+
+std::string exceptionDescription(Exception exception);
+
+// CPSR / SPSR Flags
+namespace PSR {
+    constexpr uint32_t N = 1u << 31;    // Negative, condition code, user-writable bit
+    constexpr uint32_t Z = 1u << 30;    // Zero,     condition code, user-writable bit
+    constexpr uint32_t C = 1u << 29;    // Carry,    condition code, user-writable bit
+    constexpr uint32_t V = 1u << 28;    // OVerflow, condition code, user-writable bit
+    // 27 Q Prior to ARMv5 must be treated as reserved bit
+    // 26-25 RESERVED
+    // 24 J Prior to ARMv5TEJ must be treated as reserved bit
+    // 19-16 GE[3:0] Prior to ARMv6 must be treated as reserved bit
+    // 15-10 RESERVED
+    // 9 E Prior to ARMv6 must be treated as reserved bit
+    // 8 A Prior to ARMv6 must be treated as reserved bit
+    constexpr uint32_t I = 1u << 7;     // Disables IRQ interrupt, Privileged bit
+    constexpr uint32_t F = 1u << 6;     // Disables FIQ interrupt, Privileged bit
+    constexpr uint32_t T = 1u << 5;     // Select the current instruction set, Execution state bit
+    // 4-0 M[4:0]
+    constexpr uint32_t MODE_MASK = 0b11111u;
+
+    constexpr uint32_t RESERVED_MASK = 0b11111111111111111111100000000u;
 }
 
 // ARMv4T ISA Implementation
@@ -546,6 +607,8 @@ void fiq(Arm7tdmi& cpu);
 
 DecodedInstruction decodeInstruction(uint32_t rawInstruction);
 
-void execute(Arm7tdmi& cpu);
+void executeProgram(Arm7tdmi& cpu, std::vector<uint32_t> &program);
+
+void executeInstruction(Arm7tdmi& cpu, uint32_t instruction);
 
 std::string showRegisterState(Arm7tdmi& cpu);

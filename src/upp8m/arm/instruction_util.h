@@ -63,3 +63,8 @@ const MnemonicInfo* getMnemonicInfo(Mnemonic mnemonic);
 const MnemonicExtInfo* getMnemonicExtInfo(Opcode::Cond mnemonicExt);
 
 std::string formatMnemonic(DecodedInstruction instruction);
+
+/* Arm instructions are 32-bit, WORD */
+inline void printArmInstruction(uint8_t byte0, uint8_t byte1, uint8_t byte2, uint8_t byte3);
+
+inline void printArmInstruction(uint32_t instruction);

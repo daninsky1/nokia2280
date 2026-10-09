@@ -4,6 +4,8 @@
 
 #include "arm7tdmi.h"
 
+#include "instruction_util.h"
+
 #include <format>
 #include <iostream>
 
@@ -127,26 +129,100 @@ void fiq(Arm7tdmi &cpu) {
     cpu.r15_pc = ExceptionVecAddr::FIQ;
 }
 
+Mnemonic getDataProcessingMnemonic(Opcode::DP opcode) {
+    switch (opcode) {
+    case Opcode::DP::AND: return Mnemonic::AND; break;
+    case Opcode::DP::EOR: return Mnemonic::EOR; break;
+    case Opcode::DP::SUB: return Mnemonic::SUB; break;
+    case Opcode::DP::RSB: return Mnemonic::RSB; break;
+    case Opcode::DP::ADD: return Mnemonic::ADD; break;
+    case Opcode::DP::ADC: return Mnemonic::ADC; break;
+    case Opcode::DP::SBC: return Mnemonic::SBC; break;
+    case Opcode::DP::RSC: return Mnemonic::RSC; break;
+    case Opcode::DP::TST: return Mnemonic::TST; break;
+    case Opcode::DP::TEQ: return Mnemonic::TEQ; break;
+    case Opcode::DP::CMP: return Mnemonic::CMP; break;
+    case Opcode::DP::CMN: return Mnemonic::CMN; break;
+    case Opcode::DP::ORR: return Mnemonic::ORR; break;
+    case Opcode::DP::MOV: return Mnemonic::MOV; break;
+    case Opcode::DP::BIC: return Mnemonic::BIC; break;
+    case Opcode::DP::MVN: return Mnemonic::MVN; break;
+    default:
+        std::cerr << "Invalid data processing opcode: " << static_cast<int>(opcode) << std::endl;
+        std::abort();
+    }
+}
+
 // 115
+DecodedOperation decodeDataProcessingInstruction(uint32_t rawInstruction) {
+    DataProcessing dp;
+    dp.isImmediate  = (rawInstruction & IEnc::DP::I_FLAG) != 0;
+    dp.isUpdateCond = (rawInstruction & IEnc::DP::S_FLAG) != 0;
+    bool bit7 = (rawInstruction & IEnc::DP::BIT7_MASK) != 0;
+    bool bit4 = (rawInstruction & IEnc::DP::BIT4_MASK) != 0;
+
+    dp.opcode = static_cast<Opcode::DP>((rawInstruction & IEnc::DP::OPCODE_MASK) >> IEnc::DP::OPCODE_SHIFT);
+    dp.rn = static_cast<uint8_t>((rawInstruction & IEnc::DP::RN_MASK) >> IEnc::DP::RN_SHIFT);
+    dp.rd = static_cast<uint8_t>((rawInstruction & IEnc::DP::RD_MASK) >> IEnc::DP::RD_SHIFT);
+
+    if (dp.isImmediate) {
+        dp.shifterOperand = DPI{
+            .rotate = static_cast<uint8_t>((rawInstruction & IEnc::DP::ROTATE_MASK) >> IEnc::DP::ROTATE_SHIFT),
+            .immediate = static_cast<uint8_t>(rawInstruction & IEnc::DP::IMM_MASK)
+        };
+    } else if (bit4 && !bit7) {
+        dp.shifterOperand = DPRS{
+            .rs = static_cast<uint8_t>((rawInstruction & IEnc::DP::RS_MASK) >> IEnc::DP::RS_SHIFT),
+            .shift = static_cast<uint8_t>(rawInstruction & IEnc::DP::SHIFT_SHIFT >> IEnc::DP::SHIFT_SHIFT),
+            .rm = static_cast<uint8_t>(rawInstruction & IEnc::DP::RM_MASK)
+        };
+    } else {
+        dp.shifterOperand = DPIS{
+            .shiftAmount = static_cast<uint8_t>((rawInstruction & IEnc::DP::SHIFT_AMOUNT_MASK) >> IEnc::DP::SHIFT_AMOUNT_SHIFT),
+            .shift = static_cast<uint8_t>(rawInstruction & IEnc::DP::SHIFT_MASK >> IEnc::DP::SHIFT_SHIFT),
+            .rm = static_cast<uint8_t>(rawInstruction & IEnc::DP::RM_MASK)
+        };
+    }
+    return DecodedOperation{
+        .type = InstructionType::DATA_PROCESSING,
+        .mnemonic = getDataProcessingMnemonic(dp.opcode),
+        .instructionData = dp
+    };
+}
+
+DecodedOperation decodeMiscellaneousInstruction(uint32_t rawInstruction) {
+
+}
 
 DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
     DecodedInstruction instruction{};
-    instruction.cond = (rawInstruction & IEnc::COND_MASK) >> IEnc::COND_SHIFT;
-    instruction.iclazz = (rawInstruction & IEnc::CLAZZ_MASK) >> IEnc::CLAZZ_SHIFT;
-    auto iclazz = static_cast<IEnc::Class>(instruction.iclazz);
+    instruction.cond = static_cast<Opcode::Cond>((rawInstruction & IEnc::COND_MASK) >> IEnc::COND_SHIFT);
+    instruction.clazz = static_cast<IEnc::Class>((rawInstruction & IEnc::CLASS_MASK) >> IEnc::CLASS_SHIFT);
 
-    if (instruction.cond == IEnc::Cond::UNCONDITIONAL_VALUE) {
+    if (instruction.cond == Opcode::Cond::UNCONDITIONAL) {
         std::cerr << "Unconditional instruction prior to ARMv5 is UNPREDICTABLE" << std::endl;
         std::abort();
     }
 
-    switch (iclazz) {
+    switch (instruction.clazz) {
     case IEnc::Class::C000: {
-        uint32_t decode = (rawInstruction & IEnc::C000::MISC_DEC_MASK);
-        if (decode == IEnc::C000::MISC_VALUE) {
+        uint32_t mult = (rawInstruction & IEnc::C000::MULT_DEC_MASK);
+        if (mult == IEnc::C000::MULT_VALUE) {
+            // Multiplies, extra load/stores instructions
+        }
+        uint32_t misc = (rawInstruction & IEnc::C000::MISC_DEC_MASK);
+        if (misc == IEnc::C000::MISC_VALUE) {
             // Miscellaneous instructions
             // TODO: Miscellaneous instructions
+            auto decOp = decodeMiscellaneousInstruction(rawInstruction);
+            return instruction;
         }
+        // Data processing instructions
+        DecodedOperation decOp = decodeDataProcessingInstruction(rawInstruction);
+        instruction.type = decOp.type;
+        instruction.mnemonic = decOp.mnemonic;
+        instruction.instructionData = decOp.instructionData;
+        return instruction;
         break;
     }
     case IEnc::Class::C001: {
@@ -255,31 +331,43 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
 }
 
 
-void execute(Arm7tdmi &cpu, uint32_t rawInstruction) {
-    decodeInstruction(rawInstruction);
+void executeProgram(Arm7tdmi &cpu, std::vector<uint32_t> &program) {
+    for (std::size_t i = 0; i + 4 <= program.size(); i += 4) {
+        uint32_t rawInstruction{};
+        for (int j = 0; j < 4; j++) {
+            rawInstruction |= program[i + j] << (j * 8);
+        }
+
+        auto decodedInstruction = decodeInstruction(rawInstruction);
+    }
 }
+
+void executeInstruction(Arm7tdmi &cpu, uint32_t instruction) {
+
+}
+
 std::string showRegisterState(Arm7tdmi &cpu) {
     return std::format(
     R"(r0:     {:08x}
-r1:     {:08X}
-r2:     {:08X}
-r3:     {:08X}
-r4:     {:08X}
-r5:     {:08X}
-r6:     {:08X}
-r7:     {:08X}
+r1:     {:08x}
+r2:     {:08x}
+r3:     {:08x}
+r4:     {:08x}
+r5:     {:08x}
+r6:     {:08x}
+r7:     {:08x}
 
-r8:     {:08X},                                                                                 r8_fiq:   {:08X}
-r9:     {:08X},                                                                                 r9_fiq:   {:08X}
-r10:    {:08X},                                                                                 r10_fiq:  {:08X}
-r11:    {:08X},                                                                                 r11_fiq:  {:08X}
-r12:    {:08X},                                                                                 r12_fiq:  {:08X}
+r8:     {:08x},                                                                                 r8_fiq:   {:08x}
+r9:     {:08x},                                                                                 r9_fiq:   {:08x}
+r10:    {:08x},                                                                                 r10_fiq:  {:08x}
+r11:    {:08x},                                                                                 r11_fiq:  {:08x}
+r12:    {:08x},                                                                                 r12_fiq:  {:08x}
 
-r13_sp: {:08X}, r13_svc:  {:08X}, r13_abt:  {:08X}, r13_und:  {:08X}, r13_irq:  {:08X}, r13_fiq:  {:08X}
-r14_lr: {:08X}, r14_svc:  {:08X}, r14_abt:  {:08X}, r14_und:  {:08X}, r14_irq:  {:08X}, r14_fiq:  {:08X}
-r15_pc: {:08X}
+r13_sp: {:08x}, r13_svc:  {:08x}, r13_abt:  {:08x}, r13_und:  {:08x}, r13_irq:  {:08x}, r13_fiq:  {:08x}
+r14_lr: {:08x}, r14_svc:  {:08x}, r14_abt:  {:08x}, r14_und:  {:08x}, r14_irq:  {:08x}, r14_fiq:  {:08x}
+r15_pc: {:08x}
 
-cpsr:   {:08X}, spsr_svc: {:08X}, spsr_abt: {:08X}, spsr_und: {:08X}, spsr_irq: {:08X}, spsr_fiq: {:08X}
+cpsr:   {:08x}, spsr_svc: {:08x}, spsr_abt: {:08x}, spsr_und: {:08x}, spsr_irq: {:08x}, spsr_fiq: {:08x}
 )",
         cpu.r0,
         cpu.r1,

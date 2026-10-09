@@ -4,6 +4,9 @@
 
 #include "instruction_util.h"
 
+#include <format>
+#include <iostream>
+
 const MnemonicInfo* getMnemonicInfo(Mnemonic mnemonic) {
     for (const auto& info : MNEMONIC_NAMES) {
         if (info.mnemonic == mnemonic)
@@ -31,4 +34,19 @@ std::string formatMnemonic(DecodedInstruction instruction) {
     std::string result{mnemonicExtInfo->name};
 
     return result;
+}
+
+inline void printArmInstruction(uint8_t byte0, uint8_t byte1, uint8_t byte2, uint8_t byte3) {
+    std::cout << std::format("{:02x} {:02x} {:02x} {:02x}\n",
+        byte0, byte1, byte2, byte3
+    );
+}
+
+inline void printArmInstruction(uint32_t instruction) {
+    std::cout << std::format("{:02x} {:02x} {:02x} {:02x}\n",
+        static_cast<uint8_t>(instruction),
+        static_cast<uint8_t>(instruction >> 8),
+        static_cast<uint8_t>(instruction >> (8 * 2)),
+        static_cast<uint8_t>(instruction >> (8 * 3))
+    );
 }
