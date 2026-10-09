@@ -1,0 +1,15 @@
+.idea
+tools/
+firmware/
+documents/ARM7TDMI/*
+documents/NOKIA 3510 SERVICE MANUAL.pdf
+documents/NOKIA_3510_SOURCES.md
+
+*.o
+*.elf
+
+# Ghidra
+*.rep/
+*.gpr
+*.lock
+*.lock~

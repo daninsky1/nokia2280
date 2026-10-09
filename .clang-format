@@ -1,0 +1,32 @@
+# Style of the C++ code in src/. Firmware contains imported third-party code.
+# Identifier naming is checked by clang-tidy; see src/.clang-tidy.
+# C++ source and header filenames under src/ use snake_case.
+BasedOnStyle: LLVM
+Language: Cpp
+
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 8
+NamespaceIndentation: All
+IndentCaseLabels: false
+AccessModifierOffset: -4
+
+BreakBeforeBraces: Attach
+ColumnLimit: 120
+MaxEmptyLinesToKeep: 2
+InsertNewlineAtEOF: true
+
+# The register and instruction field tables align values and comments by hand.
+AlignConsecutiveAssignments: true
+AlignConsecutiveDeclarations: false
+AlignTrailingComments: true
+AlignOperands: true
+
+# Existing headers use T& while implementation files use T &.
+DerivePointerAlignment: true
+PointerAlignment: Right
+
+# Keep the source's include groups and architecture notes in their current order.
+SortIncludes: Never
+ReflowComments: false
