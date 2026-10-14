@@ -7,7 +7,7 @@
 #include <format>
 #include <iostream>
 
-const MnemonicInfo* getMnemonicInfo(Mnemonic mnemonic) {
+const MnemonicInfo* getMnemonicInfo(Instruction mnemonic) {
     for (const auto& info : MNEMONIC_NAMES) {
         if (info.mnemonic == mnemonic)
             return &info;

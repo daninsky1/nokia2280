@@ -9,7 +9,7 @@
 #include "arm7tdmi.h"
 
 struct MnemonicInfo {
-    Mnemonic mnemonic;
+    Instruction mnemonic;
     std::string_view name;
     std::string_view description;
 };
@@ -40,25 +40,25 @@ constexpr MnemonicExtInfo MNEMONIC_EXT_NAMES[] {
 };
 
 constexpr MnemonicInfo MNEMONIC_NAMES[] {
-    {.mnemonic = Mnemonic::AND, .name = "AND", .description = "Loginal AND"},
-    {.mnemonic = Mnemonic::EOR, .name = "EOR", .description = "Loginal Exclusive OR"},
-    {.mnemonic = Mnemonic::SUB, .name = "SUB", .description = "Subtract"},
-    {.mnemonic = Mnemonic::RSB, .name = "RSB", .description = "Reverse Subtract"},
-    {.mnemonic = Mnemonic::ADD, .name = "ADD", .description = "Add"},
-    {.mnemonic = Mnemonic::ADC, .name = "ADC", .description = "Add with Carry"},
-    {.mnemonic = Mnemonic::SBC, .name = "SBC", .description = "Subtract with Carry"},
-    {.mnemonic = Mnemonic::RSC, .name = "RSC", .description = "Reverse Subteract with Carry"},
-    {.mnemonic = Mnemonic::TST, .name = "TST", .description = "Test"},
-    {.mnemonic = Mnemonic::TEQ, .name = "TEQ", .description = "Test Equivalence"},
-    {.mnemonic = Mnemonic::CMP, .name = "CMP", .description = "Compare"},
-    {.mnemonic = Mnemonic::CMN, .name = "CMN", .description = "Compare Negated"},
-    {.mnemonic = Mnemonic::ORR, .name = "ORR", .description = "Logical (inclusive) OR"},
-    {.mnemonic = Mnemonic::MOV, .name = "MOV", .description = "Move"},
-    {.mnemonic = Mnemonic::BIC, .name = "BIC", .description = "Bit Clear"},
-    {.mnemonic = Mnemonic::MVN, .name = "MVN", .description = "Move Not"},
+    {.mnemonic = Instruction::AND, .name = "AND", .description = "Loginal AND"},
+    {.mnemonic = Instruction::EOR, .name = "EOR", .description = "Loginal Exclusive OR"},
+    {.mnemonic = Instruction::SUB, .name = "SUB", .description = "Subtract"},
+    {.mnemonic = Instruction::RSB, .name = "RSB", .description = "Reverse Subtract"},
+    {.mnemonic = Instruction::ADD, .name = "ADD", .description = "Add"},
+    {.mnemonic = Instruction::ADC, .name = "ADC", .description = "Add with Carry"},
+    {.mnemonic = Instruction::SBC, .name = "SBC", .description = "Subtract with Carry"},
+    {.mnemonic = Instruction::RSC, .name = "RSC", .description = "Reverse Subteract with Carry"},
+    {.mnemonic = Instruction::TST, .name = "TST", .description = "Test"},
+    {.mnemonic = Instruction::TEQ, .name = "TEQ", .description = "Test Equivalence"},
+    {.mnemonic = Instruction::CMP, .name = "CMP", .description = "Compare"},
+    {.mnemonic = Instruction::CMN, .name = "CMN", .description = "Compare Negated"},
+    {.mnemonic = Instruction::ORR, .name = "ORR", .description = "Logical (inclusive) OR"},
+    {.mnemonic = Instruction::MOV, .name = "MOV", .description = "Move"},
+    {.mnemonic = Instruction::BIC, .name = "BIC", .description = "Bit Clear"},
+    {.mnemonic = Instruction::MVN, .name = "MVN", .description = "Move Not"},
 };
 
-const MnemonicInfo* getMnemonicInfo(Mnemonic mnemonic);
+const MnemonicInfo* getMnemonicInfo(Instruction mnemonic);
 
 const MnemonicExtInfo* getMnemonicExtInfo(Opcode::Cond mnemonicExt);
 
