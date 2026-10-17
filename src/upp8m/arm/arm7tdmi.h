@@ -588,16 +588,17 @@ struct SR {
 // ARMv4T ISA Implementation
 class Arm7tdmi {
 public:
-    uint32_t cia{};     // Current Instruction Address
-
-    uint32_t step() const;
+    uint32_t instructionStep() const;
     uint32_t r(uint8_t index) const;
     void r(uint8_t index, uint32_t value);
+    uint32_t fetchPC() const;
     uint32_t cpsr() const;
     void cpsr(uint32_t value);
     uint32_t spsr() const;
     void spsr(uint32_t value);
     void copySpsr2Cpsr();
+    void clearPcWritten();
+    bool pcWritten() const;
 
     void mode(ProcessorMode mode);
     ProcessorMode mode(ProcessorMode mode) const;
@@ -611,6 +612,7 @@ private:
     Endianness endianness = Endianness::LITTLE;
     ProcessorMode processorMode = ProcessorMode::USER;
     InstructionSet instructionSet = InstructionSet::ARM;
+    bool _pcWritten = false;
 };
 
 void reset(Arm7tdmi& cpu);

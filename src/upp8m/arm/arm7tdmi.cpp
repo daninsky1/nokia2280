@@ -79,7 +79,7 @@ std::string exceptionDescription(Exception exception) {
     }
 }
 
-uint32_t Arm7tdmi::step() const {
+uint32_t Arm7tdmi::instructionStep() const {
     return instructionSet == InstructionSet::ARM ? 4 : 2;
 }
 
@@ -100,7 +100,7 @@ uint32_t Arm7tdmi::r(uint8_t index) const {
         }
     }
     if (index == GPR::PC) {
-        return registers.r[index] + (instructionSet == InstructionSet::ARM ? 8 : 4);
+        return registers.r[index] + (instructionStep() * 2);
     }
     return registers.r[index];
 }
@@ -121,7 +121,14 @@ void Arm7tdmi::r(uint8_t index, uint32_t value) {
             registers.und[index - GPR::R13] = value;
         }
     }
+    if (index == GPR::PC) {
+        _pcWritten = true;
+    }
     registers.r[index] = value;
+}
+
+uint32_t Arm7tdmi::fetchPC() const {
+    return registers.r[GPR::PC];
 }
 
 uint32_t Arm7tdmi::cpsr() const {
@@ -184,6 +191,13 @@ void Arm7tdmi::copySpsr2Cpsr() {
         CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
     }
 }
+void Arm7tdmi::clearPcWritten() {
+    _pcWritten = false;
+}
+
+bool Arm7tdmi::pcWritten() const {
+    return _pcWritten;
+}
 
 void Arm7tdmi::mode(ProcessorMode mode) {
     this->processorMode = mode;
@@ -213,7 +227,7 @@ void undefinedInstruction(Arm7tdmi &cpu) {
     // TODO: The r14 must be set to the address of the next instruction after the Undefined instruction. Check if it is
     //  PC
     cpu.mode(ProcessorMode::UNDEFINED);
-    cpu.r(GPR::R14, cpu.cia + 4);      // address of next instruction after the Undefined instruction
+    cpu.r(GPR::R14, cpu.fetchPC() + 4);      // address of next instruction after the Undefined instruction
     cpu.spsr(cpu.cpsr());
 
     uint32_t cpsr = (cpu.cpsr() & ~PSR::MODE_MASK) | static_cast<uint32_t>(ProcessorMode::UNDEFINED);
@@ -227,7 +241,7 @@ void undefinedInstruction(Arm7tdmi &cpu) {
 
 void softwareInterrupt(Arm7tdmi &cpu) {
     cpu.mode(ProcessorMode::SUPERVISOR);
-    cpu.r(GPR::R14, cpu.cia + 4);      // address of next instruction after the SWI instruction
+    cpu.r(GPR::R14, cpu.fetchPC() + 4);      // address of next instruction after the SWI instruction
     cpu.spsr(cpu.cpsr());
 
     uint32_t cpsr = (cpu.cpsr() & ~PSR::MODE_MASK) | static_cast<uint32_t>(ProcessorMode::SUPERVISOR);
@@ -240,7 +254,7 @@ void softwareInterrupt(Arm7tdmi &cpu) {
 
 void prefetchAbort(Arm7tdmi &cpu) {
     cpu.mode(ProcessorMode::ABORT);
-    cpu.r(GPR::R14, cpu.cia + 4);      // address of the aborted instruction + 4
+    cpu.r(GPR::R14, cpu.fetchPC() + 4);      // address of the aborted instruction + 4
     cpu.spsr(cpu.cpsr());
 
     uint32_t cpsr = (cpu.cpsr() & ~PSR::MODE_MASK) | static_cast<uint32_t>(ProcessorMode::ABORT);
@@ -255,7 +269,7 @@ void prefetchAbort(Arm7tdmi &cpu) {
 void dataAbort(Arm7tdmi cpu) {
     // TODO: Learn about imprecise data aborts that could lead to an unrecoverable state, hang
     cpu.mode(ProcessorMode::ABORT);
-    cpu.r(GPR::R14, cpu.cia + 8);      // address of the aborted instruction + 8
+    cpu.r(GPR::R14, cpu.fetchPC() + 8);      // address of the aborted instruction + 8
     cpu.spsr(cpu.cpsr());
 
     uint32_t cpsr = (cpu.cpsr() & ~PSR::MODE_MASK) | static_cast<uint32_t>(ProcessorMode::ABORT);
@@ -269,7 +283,7 @@ void dataAbort(Arm7tdmi cpu) {
 
 void irq(Arm7tdmi &cpu) {
     cpu.mode(ProcessorMode::IRQ);
-    cpu.r(GPR::R14, cpu.cia + 8);      // address of next instruction to be executed + 4
+    cpu.r(GPR::R14, cpu.fetchPC() + 8);      // address of next instruction to be executed + 4
     cpu.spsr(cpu.cpsr());
 
     uint32_t cpsr = (cpu.cpsr() & ~PSR::MODE_MASK) | static_cast<uint32_t>(ProcessorMode::IRQ);
@@ -282,7 +296,7 @@ void irq(Arm7tdmi &cpu) {
 
 void fiq(Arm7tdmi &cpu) {
     cpu.mode(ProcessorMode::FIQ);
-    cpu.r(GPR::R14, cpu.cia + 8);      // address of next instruction to be executed + 4
+    cpu.r(GPR::R14, cpu.fetchPC() + 8);      // address of next instruction to be executed + 4
 
     cpu.spsr(cpu.cpsr());
 
@@ -475,12 +489,19 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction);
 void executeProgram(Arm7tdmi &cpu, const std::vector<uint8_t> &program) {
     // TODO: cia current instruction address. A naive approach to addressing. We need a memory address space controller
     //  where we can map the instruction address to a memory address
-    cpu.r(GPR::PC, cpu.cia);
+
     while (true) {
+        const size_t address = cpu.fetchPC();
+        const size_t width = cpu.instructionStep();
+
+        if (address > program.size() || width > program.size() - address) {
+            CRASH_THIS_FUCKER("Instruction fetch out of bounds");
+        }
+
         uint32_t rawInstruction{};
-        for (uint8_t j = 0; j < cpu.step(); j++) {
+        for (size_t j = 0; j < width; j++) {
             // NOTE: Endianess dependent
-            rawInstruction |= static_cast<uint32_t>(program[cpu.cia + j]) << (j * 8);
+            rawInstruction |= static_cast<uint32_t>(program[address + j]) << (j * 8);
         }
 
         auto decodedInstruction = decodeInstruction(rawInstruction);
@@ -555,13 +576,15 @@ void executeProgram(Arm7tdmi &cpu, const std::vector<uint8_t> &program) {
         // NOTE: If the flags do not satisfy the condition, the instruction acts as a NOP that is, execution
         //  advances to the next instruction as normal, including any relevant checks for interrupts and
         //  Prefetch Aborts, but has no other effect.
+        cpu.clearPcWritten();
         if (execute) {
             executeInstruction(cpu, decodedInstruction);
         } else {
             // TODO: NOP
         }
-        cpu.cia += cpu.step();
-        cpu.r(GPR::PC, cpu.cia);
+        if (!cpu.pcWritten()) {
+            cpu.r(GPR::PC, static_cast<uint32_t>(address + width));
+        }
     }
 }
 
@@ -1176,9 +1199,11 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
     case Instruction::STM:
         std::cerr << "Instruction NOT implemented!\n";
         break;
-    case Instruction::B_BL:
+    case Instruction::B_BL: {
         std::cerr << "Instruction NOT implemented!\n";
+
         break;
+    }
     case Instruction::BX:
         std::cerr << "Instruction NOT implemented!\n";
         break;
