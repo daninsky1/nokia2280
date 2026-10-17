@@ -73,6 +73,42 @@ ARM uses the same rule with 32 bits: the signed range is `-2^31` to
   signs, a result sign different from OP1 means subtracting a negative value went
   above the maximum, or subtracting a nonnegative value went below the minimum.
 
+## SBC carry flag (no borrow)
+
+ARM DDI 0100I, A4.1.65 defines `SBC` as `OP1 - OP2 - NOT(C_in)`. Here `C_in`
+is the old CPSR.C flag, and `OP2` is the shifter operand. The new C flag is 1
+when this subtraction needs no unsigned borrow.
+
+Let `borrow_in = 1 - C_in`. No borrow means `OP1 >= OP2 + borrow_in`, with the
+right side considered at full precision. Splitting this into the two possible
+values of `C_in` gives:
+
+| Old C (`C_in`) | Subtraction | New C is 1 when |
+| ---: | --- | --- |
+| 1 | `OP1 - OP2` | `OP1 >= OP2` |
+| 0 | `OP1 - OP2 - 1` | `OP1 > OP2` |
+
+So the 32-bit C++ calculation is:
+
+```cpp
+const bool carryIn = (cpu.cpsr() & PSR::C) != 0;
+const bool carryOut = (operand1 > operand2) ||
+                      (operand1 == operand2 && carryIn);
+```
+
+For a small visual example, imagine 8-bit unsigned operands. The stored result
+keeps only the low 8 bits, but C still tells whether a borrow was needed:
+
+| OP1 | OP2 | Old C | Exact subtraction | Stored 8 bits | New C |
+| ---: | ---: | ---: | --- | --- | ---: |
+| 5 | 5 | 1 | `5 - 5 - 0 = 0` | `0000 0000` | 1 |
+| 5 | 5 | 0 | `5 - 5 - 1 = -1` | `1111 1111` | 0 |
+| 6 | 5 | 0 | `6 - 5 - 1 = 0` | `0000 0000` | 1 |
+| 0 | 255 | 0 | `0 - 255 - 1 = -256` | `0000 0000` | 0 |
+
+The last row shows why `OP2 + borrow_in` must not be computed in the operand's
+width: `255 + 1` would wrap to zero in 8 bits, hiding the borrow.
+
 
 ## Bit Twiddling Hacks
 https://graphics.stanford.edu/~seander/bithacks.html
