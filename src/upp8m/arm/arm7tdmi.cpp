@@ -565,7 +565,7 @@ void executeProgram(Arm7tdmi &cpu, const std::vector<uint8_t> &program) {
     }
 }
 
-DP::ShftOperand executeShftOperand(const Arm7tdmi &cpu, const DP::Data &dp) {
+static DP::ShftOperand executeShftOperand(const Arm7tdmi &cpu, const DP::Data &dp) {
     DP::ShftOperand sftOp{};
     if (dp.i) {
         // A5.1.3 Data-processing operands - Immediate
@@ -744,15 +744,6 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
             if (dp.rd == GPR::PC) {
                 cpu.copySpsr2Cpsr();
             } else {
-                /* oVerflow:
-                 * OP1  OP2 RES V
-                 * P    P   P   0
-                 * P    P   N   1
-                 * N    N   N   0
-                 * N    N   P   1
-                 * P    N   Any 0
-                 * N    P   Any 0
-                 */
                 const bool n1 = (operand1 & Bit::WORD_MSB_MASK) != 0;
                 const bool n2 = (operand2 & Bit::WORD_MSB_MASK) != 0;
                 const bool nResult = (dest & Bit::WORD_MSB_MASK) != 0;
