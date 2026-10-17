@@ -520,7 +520,8 @@ namespace PSR {
     constexpr uint32_t Z = 0b1 << Z_SHIFT;    // Zero,     condition code, user-writable bit
     constexpr uint32_t C = 0b1 << C_SHIFT;    // Carry,    condition code, user-writable bit
     constexpr uint32_t V = 0b1 << V_SHIFT;    // OVerflow, condition code, user-writable bit
-    constexpr uint32_t NZCV = 0b1111 << V_SHIFT;    // OVerflow, condition code, user-writable bit
+    constexpr uint32_t NZCV = N | Z | C | V;
+    constexpr uint32_t NZC = N | Z | C;
     // 27 Q Prior to ARMv5 must be treated as reserved bit
     // 26-25 RESERVED
     // 24 J Prior to ARMv5TEJ must be treated as reserved bit
