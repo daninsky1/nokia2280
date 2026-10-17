@@ -909,12 +909,34 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         cpu.r(dp.rd, dest);
         break;
     }
-    case Instruction::TST:
-        std::cerr << "Instruction NOT implemented!\n";
+    case Instruction::TST: {
+        auto& dp = std::get<DP::Data>(instruction.data);
+        DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
+        uint32_t operand1 = cpu.r(dp.rn);
+        uint32_t operand2 = shftOperand.operand;
+        uint32_t dest     = operand1 & operand2;
+
+        const uint32_t nzc = (dest & PSR::N)
+            | ((dest == 0) << PSR::Z_SHIFT)
+            | (shftOperand.shftCarryOut << PSR::C_SHIFT);
+
+        cpu.cpsr((cpu.cpsr() & ~PSR::NZC) | nzc);
         break;
-    case Instruction::TEQ:
-        std::cerr << "Instruction NOT implemented!\n";
+    }
+    case Instruction::TEQ: {
+        auto& dp = std::get<DP::Data>(instruction.data);
+        DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
+        uint32_t operand1 = cpu.r(dp.rn);
+        uint32_t operand2 = shftOperand.operand;
+        uint32_t dest     = operand1 ^ operand2;
+
+        const uint32_t nzc = (dest & PSR::N)
+            | ((dest == 0) << PSR::Z_SHIFT)
+            | (shftOperand.shftCarryOut << PSR::C_SHIFT);
+
+        cpu.cpsr((cpu.cpsr() & ~PSR::NZC) | nzc);
         break;
+    }
     case Instruction::CMP:
         std::cerr << "Instruction NOT implemented!\n";
         break;
