@@ -747,9 +747,31 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         cpu.r(dp.rd, dest);
         break;
     }
-    case Instruction::RSB:
-        std::cerr << "Instruction NOT implemented!\n";
+    case Instruction::RSB: {
+        auto& dp = std::get<DP::Data>(instruction.data);
+        DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
+        uint32_t operand1 = shftOperand.operand;
+        uint32_t operand2 = cpu.r(dp.rn);
+        uint32_t dest     = operand1 - operand2;
+        if (dp.s) {
+            if (dp.rd == GPR::PC) {
+                cpu.copySpsr2Cpsr();
+            } else {
+                const bool n1 = (operand1 & Bit::WORD_MSB_MASK) != 0;
+                const bool n2 = (operand2 & Bit::WORD_MSB_MASK) != 0;
+                const bool nResult = (dest & Bit::WORD_MSB_MASK) != 0;
+
+                const uint32_t nzcv = (dest & PSR::N)
+                    | ((dest == 0) << PSR::Z_SHIFT)
+                    | ((operand1 >= operand2) << PSR::C_SHIFT)
+                    | (((n1 != n2) && (nResult != n1)) << PSR::V_SHIFT);
+
+                cpu.cpsr((cpu.cpsr() & ~PSR::NZCV) | nzcv);
+            }
+        }
+        cpu.r(dp.rd, dest);
         break;
+    }
     case Instruction::ADD: {
         auto& dp = std::get<DP::Data>(instruction.data);
         DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
@@ -829,9 +851,32 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         cpu.r(dp.rd, dest);
         break;
     }
-    case Instruction::RSC:
-        std::cerr << "Instruction NOT implemented!\n";
+    case Instruction::RSC: {
+        const bool c = (cpu.cpsr() & PSR::C) != 0;
+        auto& dp = std::get<DP::Data>(instruction.data);
+        DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
+        uint32_t operand1 = shftOperand.operand;
+        uint32_t operand2 = cpu.r(dp.rn);
+        uint32_t dest     = operand1 - operand2 - !c;
+        if (dp.s) {
+            if (dp.rd == GPR::PC) {
+                cpu.copySpsr2Cpsr();
+            } else {
+                const bool n1 = (operand1 & Bit::WORD_MSB_MASK) != 0;
+                const bool n2 = (operand2 & Bit::WORD_MSB_MASK) != 0;
+                const bool nResult = (dest & Bit::WORD_MSB_MASK) != 0;
+
+                const uint32_t nzcv = (dest & PSR::N)
+                    | ((dest == 0) << PSR::Z_SHIFT)
+                    | (((operand1 > operand2) || (operand1 == operand2 && c)) << PSR::C_SHIFT)
+                    | (((n1 != n2) && (nResult != n1)) << PSR::V_SHIFT);
+
+                cpu.cpsr((cpu.cpsr() & ~PSR::NZCV) | nzcv);
+            }
+        }
+        cpu.r(dp.rd, dest);
         break;
+    }
     case Instruction::TST:
         std::cerr << "Instruction NOT implemented!\n";
         break;
