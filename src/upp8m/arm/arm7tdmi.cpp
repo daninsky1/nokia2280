@@ -975,9 +975,25 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         cpu.cpsr((cpu.cpsr() & ~PSR::NZCV) | nzcv);
         break;
     }
-    case Instruction::ORR:
-        std::cerr << "Instruction NOT implemented!\n";
+    case Instruction::ORR: {
+        auto& dp = std::get<DP::Data>(instruction.data);
+        DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
+        uint32_t operand1 = cpu.r(dp.rn);
+        uint32_t operand2 = shftOperand.operand;
+        uint32_t dest     = operand1 | operand2;
+        if (dp.s) {
+            if (dp.rd == GPR::PC) {
+                cpu.copySpsr2Cpsr();
+            } else {
+                const uint32_t nzc = (dest & PSR::N)
+                    | ((dest == 0) << PSR::Z_SHIFT)
+                    | (shftOperand.shftCarryOut << PSR::C_SHIFT);
+                cpu.cpsr((cpu.cpsr() & ~PSR::NZC) | nzc);
+            }
+        }
+        cpu.r(dp.rd, dest);
         break;
+    }
     case Instruction::MOV:
         std::cerr << "Instruction NOT implemented!\n";
         break;
