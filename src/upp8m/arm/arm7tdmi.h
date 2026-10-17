@@ -413,12 +413,6 @@ namespace DP {
         constexpr uint8_t RTR = 0b11;   // Rotate Right
     }
 
-    enum class Type {
-        IMM,            // Immediate
-        REG,            // Register
-        LSL_IMM,        // Logical shift left by immediate
-        LSL_REG,        // Logical shift left by immediate
-    };
     // Common flags
     constexpr uint32_t I_FLAG       = 0b1 << 25;       // Distinguishes between immediate and register operands
     constexpr uint32_t OPCODE_SHIFT = 21;
@@ -452,19 +446,6 @@ namespace DP {
     constexpr uint32_t ROTATE_MASK  = 0b1111 << ROTATE_SHIFT;
     constexpr uint32_t IMM_MASK  = 0xFF;
 
-    // Decode patterns
-    constexpr uint32_t DEC_REG_SHIFT = 4;
-    constexpr uint32_t DEC_REG_MASK  = 0b11111111 << DEC_REG_SHIFT;
-
-    struct Imm;
-    struct Reg;
-    struct DPI;
-    using Shifter = std::variant<
-        Imm,
-        Reg,
-        DPI
-    >;
-
     struct Data {
         Opcode opcode;
         bool i;         // Is immediate
@@ -485,15 +466,9 @@ namespace DP {
         uint8_t shift() const;
     };
 
-    // Data processing immediate shift, shifter operand data
-    struct Imm {
-        uint8_t rotate;
-        uint8_t immediate;
-    };
-
-    // Data processing - register
-    struct Reg {
-        uint16_t shifterData;
+    struct ShftOperand {
+        uint32_t operand{};
+        bool shftCarryOut{};
     };
 }
 
@@ -530,6 +505,8 @@ enum class ProcessorMode : uint8_t {
     UNDEFINED  = 0b11011,
     SYSTEM     = 0b11111,
 };
+
+enum class InstructionSet { ARM, THUMB };
 
 std::string exceptionDescription(Exception exception);
 
@@ -574,7 +551,7 @@ struct GPR {
     std::array<uint32_t, 2>  und{};
     std::array<uint32_t, 2>  irq{};
     std::array<uint32_t, 7>  fiq{};
-,
+
     static constexpr uint8_t R0  = 0;
     static constexpr uint8_t R1  = 1;
     static constexpr uint8_t R2  = 2;
@@ -612,6 +589,7 @@ class Arm7tdmi {
 public:
     uint32_t cia{};     // Current Instruction Address
 
+    uint32_t step() const;
     uint32_t r(uint8_t index) const;
     void r(uint8_t index, uint32_t value);
     uint32_t cpsr() const;
@@ -631,6 +609,7 @@ private:
     SR statusRegisters{};
     Endianness endianness = Endianness::LITTLE;
     ProcessorMode processorMode = ProcessorMode::USER;
+    InstructionSet instructionSet = InstructionSet::ARM;
 };
 
 void reset(Arm7tdmi& cpu);
@@ -649,6 +628,6 @@ void fiq(Arm7tdmi& cpu);
 
 DecodedInstruction decodeInstruction(uint32_t rawInstruction);
 
-void executeProgram(Arm7tdmi& cpu, std::vector<uint32_t> &program);
+void executeProgram(Arm7tdmi& cpu, const std::vector<uint8_t> &program);
 
 std::string showRegisterState(Arm7tdmi& cpu);

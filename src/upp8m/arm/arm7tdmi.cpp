@@ -79,6 +79,10 @@ std::string exceptionDescription(Exception exception) {
     }
 }
 
+uint32_t Arm7tdmi::step() const {
+    return instructionSet == InstructionSet::ARM ? 4 : 2;
+}
+
 uint32_t Arm7tdmi::r(uint8_t index) const {
     if (processorMode == ProcessorMode::FIQ && index >= GPR::R8 && index <= GPR::R14) {
         return registers.fiq[index - GPR::R8];
@@ -96,7 +100,7 @@ uint32_t Arm7tdmi::r(uint8_t index) const {
         }
     }
     if (index == GPR::PC) {
-        return registers.r[index] + 8;
+        return registers.r[index] + (instructionSet == InstructionSet::ARM ? 8 : 4);
     }
     return registers.r[index];
 }
@@ -468,13 +472,15 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
 
 void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction);
 
-void executeProgram(Arm7tdmi &cpu, std::vector<uint32_t> &program) {
+void executeProgram(Arm7tdmi &cpu, const std::vector<uint8_t> &program) {
     // TODO: cia current instruction address. A naive approach to addressing. We need a memory address space controller
     //  where we can map the instruction address to a memory address
-    for (cpu.cia = 0; cpu.cia + 4 <= program.size(); cpu.cia += 4) {
+    cpu.r(GPR::PC, cpu.cia);
+    while (true) {
         uint32_t rawInstruction{};
-        for (int j = 0; j < 4; j++) {
-            rawInstruction |= program[cpu.cia + j] << (j * 8);
+        for (uint8_t j = 0; j < cpu.step(); j++) {
+            // NOTE: Endianess dependent
+            rawInstruction |= static_cast<uint32_t>(program[cpu.cia + j]) << (j * 8);
         }
 
         auto decodedInstruction = decodeInstruction(rawInstruction);
@@ -554,7 +560,158 @@ void executeProgram(Arm7tdmi &cpu, std::vector<uint32_t> &program) {
         } else {
             // TODO: NOP
         }
+        cpu.cia += cpu.step();
+        cpu.r(GPR::PC, cpu.cia);
     }
+}
+
+DP::ShftOperand executeShftOperand(const Arm7tdmi &cpu, const DP::Data &dp) {
+    DP::ShftOperand sftOp{};
+    if (dp.i) {
+        // A5.1.3 Data-processing operands - Immediate
+        uint8_t rotateImm = dp.rotateImm();
+        sftOp.operand = std::rotr(static_cast<uint32_t>(dp.immed8()), 2 * dp.rotateImm());
+        if (rotateImm == 0) {
+            sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+        } else {
+            sftOp.shftCarryOut = (sftOp.operand & DP::SHFT_OP_BIT31_FLAG) != 0;
+        }
+    } else {
+        uint32_t rm = cpu.r(dp.rm());
+        bool isShftReg= dp.isShftReg();
+        uint8_t shift = dp.shift();
+        uint8_t shiftImm = dp.shiftImm();
+        bool isRegister = !isShftReg && !shift && !shiftImm;
+        if (isRegister) {
+            sftOp.operand = rm;
+            sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+        } else if (isShftReg) {
+            // Shift by register;
+            if (dp.rd == GPR::PC || dp.rm() == GPR::PC || dp.rn == GPR::PC || dp.rs() == GPR::PC) {
+                CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
+            }
+            uint8_t rs = static_cast<uint8_t>(cpu.r(dp.rs()));      // Register shift
+            switch (shift) {
+            case DP::Shift::LSL: {
+                if (rs == 0) {
+                    sftOp.operand = rm;
+                    sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+                } else if (rs < 32) {
+                    sftOp.operand = rm << rs;
+                    sftOp.shftCarryOut = (rm & (1 << (32 - rs))) != 0;
+                } else if (rs == 32) {
+                    sftOp.operand = 0;
+                    sftOp.shftCarryOut = (rm & 0b1) != 0;
+                } else if (rs > 32) {
+                    sftOp.operand = 0;
+                    sftOp.shftCarryOut = false;
+                }
+                break;
+            }
+            case DP::Shift::LSR: {
+                if (rs == 0) {
+                    sftOp.operand = rm;
+                    sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+                } else if (rs < 32) {
+                    sftOp.operand = rm >> rs;
+                    sftOp.shftCarryOut = (rm & (1 << (rs - 1))) != 0;
+                } else if (rs == 32) {
+                    sftOp.operand = 0;
+                    sftOp.shftCarryOut = (rm & (0b1 << 31)) != 0;
+                } else if (rs > 32) {
+                    sftOp.operand = 0;
+                    sftOp.shftCarryOut = false;
+                }
+                break;
+            }
+            case DP::Shift::ASR: {
+                if (rs == 0) {
+                    sftOp.operand = rm;
+                    sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+                } else if (rs < 32) {
+                    sftOp.operand = static_cast<uint32_t>(
+                        static_cast<int32_t>(rm) >> rs
+                    );
+                    sftOp.shftCarryOut = (rm & (1 << (rs - 1))) != 0;
+                } else {
+                    bool sign = (rm & Bit::WORD_MSB_MASK) != 0;
+                    if (sign) {
+                        sftOp.operand = 0xFFFFFFFF;
+                    } else {
+                        sftOp.operand = 0;
+                    }
+                    sftOp.shftCarryOut = sign;
+                }
+                break;
+            }
+            case DP::Shift::RTR: {
+                uint8_t rot = rs & 0b11111;
+                if (rs == 0) {
+                    sftOp.operand = rm;
+                    sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+                } else if (rot == 0) {
+                    sftOp.operand = rm;
+                    sftOp.shftCarryOut = (rm & (0b1 << 31)) != 0;
+                } else if (rot > 0) {
+                    sftOp.operand = std::rotr(rm, rot);
+                    sftOp.shftCarryOut = (rm & (1 << (rot - 1))) != 0;
+                }
+                break;
+            }
+            default:
+                CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
+            }
+        } else {
+            // Shift by immediate;
+            switch (shift) {
+            case DP::Shift::LSL: {
+                sftOp.operand = rm << shiftImm;
+                sftOp.shftCarryOut = (rm & (1 << (32 - shiftImm))) != 0;
+                break;
+            }
+            case DP::Shift::LSR: {
+                if (shiftImm == 0) {
+                    sftOp.operand = 0;
+                    sftOp.shftCarryOut = (rm & Bit::WORD_MSB_MASK) != 0;
+                } else {
+                    sftOp.operand = rm >> shiftImm;
+                    sftOp.shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
+                }
+                break;
+            }
+            case DP::Shift::ASR: {
+                if (shiftImm == 0) {
+                    bool sign = (rm & Bit::WORD_MSB_MASK) != 0;
+                    sftOp.shftCarryOut = sign;
+                    if (sign) {
+                        sftOp.operand = 0xFFFFFFFF;
+                    } else {
+                        sftOp.operand = 0;
+                    }
+                } else {
+                    sftOp.operand = static_cast<uint32_t>(
+                        static_cast<int32_t>(rm) >> shiftImm
+                    );
+                    sftOp.shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
+                }
+                break;
+            }
+            case DP::Shift::RTR: {
+                if (shiftImm == 0) {
+                    sftOp.operand = ((cpu.cpsr() & PSR::C) != 0 ? Bit::WORD_MSB_MASK : 0) | (rm >> 1);
+                    sftOp.shftCarryOut = (rm & 1) != 0;
+                } else {
+                    sftOp.operand = std::rotr(rm, shiftImm);
+                    sftOp.shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
+                }
+                break;
+            }
+            default:
+                CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
+            }
+        }
+    }
+    return sftOp;
 }
 
 void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
@@ -576,161 +733,11 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         break;
     case Instruction::ADC: {
         auto& dp = std::get<DP::Data>(instruction.data);
+        DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
         uint32_t operand1 = cpu.r(dp.rn);
-        uint32_t operand2 = 0;
+        uint32_t operand2 = shftOperand.operand;
         uint32_t dest     = 0;
-        bool shftCarryOut;      // N/A
-        if (dp.i) {
-            // A5.1.3 Data-processing operands - Immediate
-            uint8_t rotateImm = dp.rotateImm();
-            operand2 = std::rotr(static_cast<uint32_t>(dp.immed8()), 2 * dp.rotateImm());
-            if (rotateImm == 0) {
-                shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
-            } else {
-                shftCarryOut = (operand2 & DP::SHFT_OP_BIT31_FLAG) != 0;
-            }
-        } else {
-            uint32_t rm = cpu.r(dp.rm());
-            bool isShftReg= dp.isShftReg();
-            uint8_t shift = dp.shift();
-            uint8_t shiftImm = dp.shiftImm();
-            bool isRegister = !isShftReg && !shift && !shiftImm;
-            if (isRegister) {
-                operand2 = rm;
-                shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
-            } else if (isShftReg) {
-                // Shift by register;
-                if (dp.rd == GPR::PC || dp.rm() == GPR::PC || dp.rn == GPR::PC || dp.rs() == GPR::PC) {
-                    CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
-                }
-                uint8_t rs = static_cast<uint8_t>(cpu.r(dp.rs()));      // Register shift
-                switch (shift) {
-                case DP::Shift::LSL: {
-                    if (rs == 0) {
-                        operand2 = rm;
-                        shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
-                    } else if (rs < 32) {
-                        operand2 = rm << rs;
-                        shftCarryOut = (rm & (1 << (32 - rs))) != 0;
-                    } else if (rs == 32) {
-                        operand2 = 0;
-                        shftCarryOut = (rm & 0b1) != 0;
-                    } else if (rs > 32) {
-                        operand2 = 0;
-                        shftCarryOut = false;
-                    }
-                    break;
-                }
-                case DP::Shift::LSR: {
-                    if (rs == 0) {
-                        operand2 = rm;
-                        shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
-                    } else if (rs < 32) {
-                        operand2 = rm >> rs;
-                        shftCarryOut = (rm & (1 << (rs - 1))) != 0;
-                    } else if (rs == 32) {
-                        operand2 = 0;
-                        shftCarryOut = (rm & (0b1 << 31)) != 0;
-                    } else if (rs > 32) {
-                        operand2 = 0;
-                        shftCarryOut = false;
-                    }
-                    break;
-                }
-                case DP::Shift::ASR: {
-                    if (rs == 0) {
-                        operand2 = rm;
-                        shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
-                    } else if (rs < 32) {
-                        operand2 = static_cast<uint32_t>(
-                            static_cast<int32_t>(rm) >> rs
-                        );
-                        shftCarryOut = (rm & (1 << (rs - 1))) != 0;
-                    } else {
-                        bool sign = (rm & Bit::WORD_MSB_MASK) != 0;
-                        if (sign) {
-                            operand2 = 0xFFFFFFFF;
-                        } else {
-                            operand2 = 0;
-                        }
-                        shftCarryOut = sign;
-                    }
-                    break;
-                }
-                case DP::Shift::RTR: {
-                    uint8_t rot = rs & 0b11111;
-                    if (rs == 0) {
-                        operand2 = rm;
-                        shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
-                    } else if (rot == 0) {
-                        operand2 = rm;
-                        shftCarryOut = (rm & (0b1 << 31)) != 0;
-                    } else if (rot > 0) {
-                        operand2 = std::rotr(rm, rot);
-                        shftCarryOut = (rm & (1 << (rot - 1))) != 0;
-                    }
-                    break;
-                }
-                default:
-                    CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
-                }
-            } else {
-                // Shift by immediate;
-                switch (shift) {
-                case DP::Shift::LSL: {
-                    operand2 = rm << shiftImm;
-                    shftCarryOut = (rm & (1 << (32 - shiftImm))) != 0;
-                    break;
-                }
-                case DP::Shift::LSR: {
-                    if (shiftImm == 0) {
-                        operand2 = 0;
-                        shftCarryOut = (rm & Bit::WORD_MSB_MASK) != 0;
-                    } else {
-                        operand2 = rm >> shiftImm;
-                        shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
-                    }
-                    break;
-                }
-                case DP::Shift::ASR: {
-                    if (shiftImm == 0) {
-                        bool sign = (rm & Bit::WORD_MSB_MASK) != 0;
-                        shftCarryOut = sign;
-                        if (sign) {
-                            operand2 = 0xFFFFFFFF;
-                        } else {
-                            operand2 = 0;
-                        }
-                    } else {
-                        operand2 = static_cast<uint32_t>(
-                            static_cast<int32_t>(rm) >> shiftImm
-                        );
-                        shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
-                    }
-                    break;
-                }
-                case DP::Shift::RTR: {
-                    if (shiftImm == 0) {
-                        operand2 = ((cpu.cpsr() & PSR::C) != 0 ? Bit::WORD_MSB_MASK : 0) | (rm >> 1);
-                        shftCarryOut = (rm & 1) != 0;
-                    } else {
-                        operand2 = std::rotr(rm, shiftImm);
-                        shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
-                    }
-                    break;
-                }
-                default:
-                    CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
-                }
-            }
-            // if (const auto* regShift = std::get_if<DPRS>(&dp.shifterOperand)) {
-            //     shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
-            // }
-        }
-        const bool n = (cpu.cpsr() & PSR::N) != 0;
-        const bool z = (cpu.cpsr() & PSR::Z) != 0;
         const bool c = (cpu.cpsr() & PSR::C) != 0;
-        const bool v = (cpu.cpsr() & PSR::V) != 0;
         uint32_t partial = operand1 + operand2;
         dest = partial + c;
         if (dp.s) {
@@ -1007,5 +1014,3 @@ cpsr:   {:08x}, spsr_svc: {:08x}, spsr_abt: {:08x}, spsr_und: {:08x}, spsr_irq: 
         sr.cpsr, sr.spsr_svc, sr.spsr_abt, sr.spsr_und, sr.spsr_irq, sr.spsr_fiq
         );
 }
-
-
