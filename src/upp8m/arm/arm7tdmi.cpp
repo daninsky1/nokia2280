@@ -937,12 +937,44 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         cpu.cpsr((cpu.cpsr() & ~PSR::NZC) | nzc);
         break;
     }
-    case Instruction::CMP:
-        std::cerr << "Instruction NOT implemented!\n";
+    case Instruction::CMP: {
+        auto& dp = std::get<DP::Data>(instruction.data);
+        DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
+        uint32_t operand1 = cpu.r(dp.rn);
+        uint32_t operand2 = shftOperand.operand;
+        uint32_t dest     = operand1 - operand2;
+
+        const bool n1 = (operand1 & Bit::WORD_MSB_MASK) != 0;
+        const bool n2 = (operand2 & Bit::WORD_MSB_MASK) != 0;
+        const bool nResult = (dest & Bit::WORD_MSB_MASK) != 0;
+
+        const uint32_t nzcv = (dest & PSR::N)
+            | ((dest == 0) << PSR::Z_SHIFT)
+            | ((operand1 >= operand2) << PSR::C_SHIFT)
+            | (((n1 != n2) && (nResult != n1)) << PSR::V_SHIFT);
+
+        cpu.cpsr((cpu.cpsr() & ~PSR::NZCV) | nzcv);
         break;
-    case Instruction::CMN:
-        std::cerr << "Instruction NOT implemented!\n";
+    }
+    case Instruction::CMN: {
+        auto& dp = std::get<DP::Data>(instruction.data);
+        DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
+        uint32_t operand1 = cpu.r(dp.rn);
+        uint32_t operand2 = shftOperand.operand;
+        uint32_t dest     = operand1 + operand2;
+
+        const bool n1 = (operand1 & Bit::WORD_MSB_MASK) != 0;
+        const bool n2 = (operand2 & Bit::WORD_MSB_MASK) != 0;
+        const bool nResult = (dest & Bit::WORD_MSB_MASK) != 0;
+
+        const uint32_t nzcv = (dest & PSR::N)
+            | ((dest == 0) << PSR::Z_SHIFT)
+            | ((dest < operand1) << PSR::C_SHIFT)
+            | (((n1 == n2) && (nResult != n1)) << PSR::V_SHIFT);
+
+        cpu.cpsr((cpu.cpsr() & ~PSR::NZCV) | nzcv);
         break;
+    }
     case Instruction::ORR:
         std::cerr << "Instruction NOT implemented!\n";
         break;
