@@ -332,26 +332,6 @@ Instruction getDataProcessingMnemonic(DP::Opcode opcode) {
     }
 }
 
-// 115
-DecodedOperation decodeDataProcessingInstruction(uint32_t rawInstruction) {
-    DP::Data dp;
-    dp.i  = (rawInstruction & DP::I_FLAG) != 0;
-    dp.s = (rawInstruction & DP::S_FLAG) != 0;
-    dp.opcode = static_cast<DP::Opcode>((rawInstruction & DP::OPCODE_MASK) >> DP::OPCODE_SHIFT);
-    dp.rn = static_cast<uint8_t>((rawInstruction & DP::RN_MASK) >> DP::RN_SHIFT);
-    dp.rd = static_cast<uint8_t>((rawInstruction & DP::RD_MASK) >> DP::RD_SHIFT);
-    dp.shifterOperand = static_cast<uint16_t>(rawInstruction & DP::SHIFTER_MASK);
-    return DecodedOperation{
-        .type = InstructionType::DATA_PROCESSING,
-        .mnemonic = getDataProcessingMnemonic(dp.opcode),
-        .instructionData = dp
-    };
-}
-
-DecodedOperation decodeMiscellaneousInstruction(uint32_t rawInstruction) {
-
-}
-
 DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
     DecodedInstruction instruction{};
     instruction.cond = static_cast<Opcode::Cond>((rawInstruction & IEnc::COND_MASK) >> IEnc::COND_SHIFT);
@@ -367,14 +347,20 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
         if (misc == IEnc::C000::MISC_VALUE) {
             // Miscellaneous instructions
             // TODO: Miscellaneous instructions
-            auto decOp = decodeMiscellaneousInstruction(rawInstruction);
             return instruction;
         }
         // Data processing instructions
-        DecodedOperation decOp = decodeDataProcessingInstruction(rawInstruction);
-        instruction.type = decOp.type;
-        instruction.mnemonic = decOp.mnemonic;
-        instruction.data = decOp.instructionData;
+        DP::Data data;
+        data.i  = (rawInstruction & DP::I_FLAG) != 0;
+        data.s = (rawInstruction & DP::S_FLAG) != 0;
+        data.opcode = static_cast<DP::Opcode>((rawInstruction & DP::OPCODE_MASK) >> DP::OPCODE_SHIFT);
+        data.rn = static_cast<uint8_t>((rawInstruction & DP::RN_MASK) >> DP::RN_SHIFT);
+        data.rd = static_cast<uint8_t>((rawInstruction & DP::RD_MASK) >> DP::RD_SHIFT);
+        data.shifterOperand = static_cast<uint16_t>(rawInstruction & DP::SHIFTER_MASK);
+
+        instruction.type = InstructionType::DATA_PROCESSING;
+        instruction.mnemonic = getDataProcessingMnemonic(data.opcode);
+        instruction.data = data;
         return instruction;
         break;
     }
@@ -389,9 +375,18 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
             // Move immediate to status register
             return instruction;
         }
-        // TODO: Decode immediate data-processing instructions, including ADC. This path currently falls through to
-        // UNDEFINED because immediate forms are not implemented yet.
+        DP::Data data;
+        data.i  = (rawInstruction & DP::I_FLAG) != 0;
+        data.s = (rawInstruction & DP::S_FLAG) != 0;
+        data.opcode = static_cast<DP::Opcode>((rawInstruction & DP::OPCODE_MASK) >> DP::OPCODE_SHIFT);
+        data.rn = static_cast<uint8_t>((rawInstruction & DP::RN_MASK) >> DP::RN_SHIFT);
+        data.rd = static_cast<uint8_t>((rawInstruction & DP::RD_MASK) >> DP::RD_SHIFT);
+        data.shifterOperand = static_cast<uint16_t>(rawInstruction & DP::SHIFTER_MASK);
 
+        instruction.type = InstructionType::DATA_PROCESSING;
+        instruction.mnemonic = getDataProcessingMnemonic(data.opcode);
+        instruction.data = data;
+        return instruction;
         break;
     }
     case IEnc::Class::LSIO: {
@@ -590,6 +585,7 @@ void executeProgram(Arm7tdmi &cpu, const std::vector<uint8_t> &program) {
         if (!cpu.pcWritten()) {
             cpu.r(GPR::PC, static_cast<uint32_t>(address + width));
         }
+        std::cout << showRegisterState(cpu) << "\n";
     }
 }
 

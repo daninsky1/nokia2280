@@ -489,12 +489,6 @@ using InstructionData = std::variant<
     Miscellaneous
 >;
 
-struct DecodedOperation {
-    InstructionType type;
-    Instruction mnemonic;
-    InstructionData instructionData;
-};
-
 struct DecodedInstruction {
     uint32_t rawInstruction;
     Instruction mnemonic;

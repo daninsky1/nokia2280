@@ -38,8 +38,7 @@ void printHexInstructions(const std::vector<uint8_t> & segment) {
 }
 int main() {
     Arm7tdmi cpu{};
-    std::cout << "ARM7TDMI Emulator\n" << "!\n";
-    std::cout << showRegisterState(cpu) << "\n";
+    std::cout << "ARM7TDMI Emulator\n";
 
     auto path = getTestProgramPath();
     if (!path) {
@@ -63,6 +62,8 @@ int main() {
     auto binaryProgram = readProgramSegment(elf, programHeaders.value());
 
     printHexInstructions(binaryProgram);
+
+    executeProgram(cpu, binaryProgram);
 
     std::cout << "\n";
 
