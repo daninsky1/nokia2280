@@ -433,7 +433,11 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
     }
     case IEnc::Class::BRANCH: {
         instruction.type = InstructionType::BRANCH;
-        auto l = (rawInstruction & IEnc::C101_BRANCH::L_FLAG);
+        instruction.mnemonic = Instruction::B_BL;
+        B::Data data;
+        data.l = rawInstruction & B::L_FLAG;
+        data.signedImmed24 = rawInstruction & B::OFFSET_MASK;
+        instruction.data = data;
         return instruction;
         break;
     }
@@ -1205,7 +1209,7 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         if (b.l) {
             cpu.r(GPR::LR, cpu.fetchPC() + cpu.instructionStep());
         }
-        uint32_t offset = ((b.signedImmed24 ^ 0x00800000) - 0x00800000) << 2;
+        uint32_t offset = ((b.signedImmed24 ^ B::OFFSET_MSB_MASK) - B::OFFSET_MSB_MASK) << 2;
         uint32_t addr = cpu.r(GPR::PC) + offset;
         cpu.r(GPR::PC, addr);
         break;

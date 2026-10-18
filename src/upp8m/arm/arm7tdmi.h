@@ -332,11 +332,6 @@ namespace IEnc {
         constexpr uint32_t REG_LIST_MASK = 0xFF'FF;
     }
 
-    namespace C101_BRANCH {
-        constexpr uint32_t L_FLAG = 0b1 << 24;
-        constexpr uint32_t OFFSET_MASK = 0xFF'FF'FF;
-    }
-
     namespace C110_COP {
         constexpr uint32_t P_FLAG = 0b1 << 24;
         constexpr uint32_t U_FLAG = 0b1 << 23;
@@ -387,32 +382,6 @@ namespace IEnc {
 
 // Data processing
 namespace DP {
-    enum class Opcode : uint8_t {
-        AND = 0b0000,
-        EOR = 0b0001,
-        SUB = 0b0010,
-        RSB = 0b0011,
-        ADD = 0b0100,
-        ADC = 0b0101,
-        SBC = 0b0110,
-        RSC = 0b0111,
-        TST = 0b1000,
-        TEQ = 0b1001,
-        CMP = 0b1010,
-        CMN = 0b1011,
-        ORR = 0b1100,
-        MOV = 0b1101,
-        BIC = 0b1110,
-        MVN = 0b1111
-    };
-
-    namespace Shift {
-        constexpr uint8_t LSL = 0b00;   // Logical Shift Left
-        constexpr uint8_t LSR = 0b01;   // Logical Shift Right
-        constexpr uint8_t ASR = 0b10;   // Arithmetic Shift Right
-        constexpr uint8_t RTR = 0b11;   // Rotate Right
-    }
-
     // Common flags
     constexpr uint32_t I_FLAG       = 0b1 << 25;       // Distinguishes between immediate and register operands
     constexpr uint32_t OPCODE_SHIFT = 21;
@@ -446,6 +415,32 @@ namespace DP {
     constexpr uint32_t ROTATE_MASK  = 0b1111 << ROTATE_SHIFT;
     constexpr uint32_t IMM_MASK  = 0xFF;
 
+    enum class Opcode : uint8_t {
+        AND = 0b0000,
+        EOR = 0b0001,
+        SUB = 0b0010,
+        RSB = 0b0011,
+        ADD = 0b0100,
+        ADC = 0b0101,
+        SBC = 0b0110,
+        RSC = 0b0111,
+        TST = 0b1000,
+        TEQ = 0b1001,
+        CMP = 0b1010,
+        CMN = 0b1011,
+        ORR = 0b1100,
+        MOV = 0b1101,
+        BIC = 0b1110,
+        MVN = 0b1111
+    };
+
+    namespace Shift {
+        constexpr uint8_t LSL = 0b00;   // Logical Shift Left
+        constexpr uint8_t LSR = 0b01;   // Logical Shift Right
+        constexpr uint8_t ASR = 0b10;   // Arithmetic Shift Right
+        constexpr uint8_t RTR = 0b11;   // Rotate Right
+    }
+
     struct Data {
         Opcode opcode;
         bool i;         // Is immediate
@@ -474,6 +469,10 @@ namespace DP {
 
 // Branch
 namespace B {
+    constexpr uint32_t L_FLAG = 0b1 << 24;
+    constexpr uint32_t OFFSET_MASK     = 0xFFFFFF;
+    constexpr uint32_t OFFSET_MSB_MASK = 0x800000;
+
     struct Data {
         bool l;         // L bit 24
         uint32_t signedImmed24;
@@ -548,8 +547,8 @@ namespace PSR {
 }
 
 namespace Bit {
-    constexpr uint32_t WORD_MSB_BIT = 31;
-    constexpr uint32_t WORD_MSB_MASK = 0b1 << WORD_MSB_BIT;     // Arm Word (32-bit) MSB bit
+    constexpr uint32_t WORD_MSB = 31;
+    constexpr uint32_t WORD_MSB_MASK = 0b1 << WORD_MSB;     // Arm Word (32-bit) MSB bit
 }
 
 
