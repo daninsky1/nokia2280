@@ -472,12 +472,21 @@ namespace DP {
     };
 }
 
+// Branch
+namespace B {
+    struct Data {
+        bool l;         // L bit 24
+        uint32_t signedImmed24;
+    };
+}
+
 struct Miscellaneous {
     // TODO: Check if miscellaneous instruction has usable fields on ARMv4T
 };
 
 using InstructionData = std::variant<
     DP::Data,
+    B::Data,
     Miscellaneous
 >;
 

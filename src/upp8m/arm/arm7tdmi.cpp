@@ -490,6 +490,7 @@ void executeProgram(Arm7tdmi &cpu, const std::vector<uint8_t> &program) {
     // TODO: cia current instruction address. A naive approach to addressing. We need a memory address space controller
     //  where we can map the instruction address to a memory address
 
+
     while (true) {
         const size_t address = cpu.fetchPC();
         const size_t width = cpu.instructionStep();
@@ -1200,8 +1201,13 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         std::cerr << "Instruction NOT implemented!\n";
         break;
     case Instruction::B_BL: {
-        std::cerr << "Instruction NOT implemented!\n";
-
+        auto& b = std::get<B::Data>(instruction.data);
+        if (b.l) {
+            cpu.r(GPR::LR, cpu.fetchPC() + cpu.instructionStep());
+        }
+        uint32_t offset = ((b.signedImmed24 ^ 0x00800000) - 0x00800000) << 2;
+        uint32_t addr = cpu.r(GPR::PC) + offset;
+        cpu.r(GPR::PC, addr);
         break;
     }
     case Instruction::BX:
