@@ -118,8 +118,6 @@ enum class Instruction {
     LDR,        // Load and store instructions
     LDRB,
     LDRBT,
-    LDRD,
-    LDREX,
     LDRH,
     LDRSB,
     LDRSH,
@@ -127,16 +125,12 @@ enum class Instruction {
     STR,
     STRB,
     STRBT,
-    STRD,
-    STREX,
     STRH,
     STRT,
     LDM,        // Load and store multiple
     STM,
     B_BL,       // Branch instructions
     BX,
-    // BLX: Version 5 and above.
-    // BXJ: Version 6 and above, plus ARMv5TEJ.
     SWP,        // Semaphore instructions
     SWPB,
     BKPT,       // Exception-generating instructions
@@ -236,9 +230,9 @@ namespace IEnc {
     enum class Class : uint8_t {
         C000     = 0b000,
         C001     = 0b001,
-        LSIO     = 0b010,    // Load/store immediate offset
+        LS       = 0b010,    // Load/store single data transfer
         C011     = 0b011,
-        LSMU     = 0b100,    // Load/store multiple
+        LSM      = 0b100,    // Load/store multiple data transfer
         BRANCH   = 0b101,    // Branch and branch with link
         COPLSDRT = 0b110,    // Coprocessor load/store and double register transfers
         C111     = 0b111,
@@ -246,8 +240,8 @@ namespace IEnc {
 
     namespace C000 {
         // Decode patterns
-        constexpr uint32_t MULT_DEC_MASK = (0b1 << 7) | (0b1 << 4);
-        constexpr uint32_t MULT_VALUE    = MULT_DEC_MASK;     // Multiplies/Extra load/store instructions decode pattern
+        constexpr uint32_t MULT_MLS_DEC_MASK = (0b1 << 7) | (0b1 << 4);
+        constexpr uint32_t MLS_VALUE = MULT_MLS_DEC_MASK;     // Miscellaneous loads/stores instructions pattern
 
         constexpr uint32_t MISC_DEC_MASK = (0b11 << 23) | (0b1 << 20);
         constexpr uint32_t MISC_VALUE    = 0b1 << 24;     // Miscellaneous instructions decode pattern
@@ -280,11 +274,7 @@ namespace IEnc {
     }
 
     namespace C010_LSIO {
-        constexpr uint32_t P_MASK = 0b1 << 24;
-        constexpr uint32_t U_MASK = 0b1 << 23;
-        constexpr uint32_t B_MASK = 0b1 << 22;
-        constexpr uint32_t W_MASK = 0b1 << 21;
-        constexpr uint32_t L_MASK = 0b1 << 20;
+
 
         constexpr uint32_t RN_SHIFT = 16;
         constexpr uint32_t RN_MASK  = 0b1111 << RN_SHIFT;
@@ -383,7 +373,7 @@ namespace IEnc {
 // Data processing
 namespace DP {
     // Common flags
-    constexpr uint32_t I_FLAG       = 0b1 << 25;       // Distinguishes between immediate and register operands
+    constexpr uint32_t I_FLAG       = 0b1 << 25;       // 1 = immediate, 0 = by register
     constexpr uint32_t OPCODE_SHIFT = 21;
     constexpr uint32_t OPCODE_MASK  = 0b1111 << OPCODE_SHIFT;
     constexpr uint32_t S_FLAG       = 0b1 << 20;
@@ -396,16 +386,18 @@ namespace DP {
     constexpr uint32_t SHFT_OP_BIT31_FLAG = 0b1 << 31;       // Shifter operand 31bit flag
 
     // Data processing register flags
-    constexpr uint32_t RS_SHIFT     = 8;
-    constexpr uint32_t RS_MASK      = 0b1111 << RS_SHIFT;
+    constexpr uint32_t RS_SHIFT = 8;
+    constexpr uint32_t RS_MASK  = 0b1111 << RS_SHIFT;
 
     constexpr uint32_t SHIFT_AMOUNT_SHIFT = 7;
     constexpr uint32_t SHIFT_AMOUNT_MASK  = 0b11111 << SHIFT_AMOUNT_SHIFT;
+    constexpr uint32_t SHIFT_SHIFT = 5;
+    constexpr uint32_t SHIFT_MASK  = 0b11 << SHIFT_SHIFT;
     constexpr uint32_t BIT7_MASK = 0b1 << 7;
     constexpr uint32_t REG_MASK  = 0b1 << 4;
 
-    constexpr uint32_t SHIFT_SHIFT = 5;
-    constexpr uint32_t SHIFT_MASK  = 0b11 << SHIFT_SHIFT;
+    constexpr uint32_t REG_OFF_IDX_MASK = SHIFT_AMOUNT_MASK | SHIFT_MASK | REG_MASK;
+
     constexpr uint32_t RM_MASK     = 0b1111;
 
     // Data processing immediate shift flags
@@ -454,11 +446,12 @@ namespace DP {
 
         uint8_t rm() const;
 
-        bool isShftReg() const;
+        bool isShftByReg() const;
 
         uint8_t rs() const;
         uint8_t shiftImm() const;
         uint8_t shift() const;
+        bool isByRegOffIdx() const;
     };
 
     struct ShftOperand {
@@ -479,6 +472,157 @@ namespace B {
     };
 }
 
+namespace LS {
+    constexpr uint32_t I_FLAG = 0b1 << 25;       // 0 = immediate, 1 = by register
+    constexpr uint32_t P_FLAG = 0b1 << 24;
+    constexpr uint32_t U_FLAG = 0b1 << 23;
+    constexpr uint32_t B_FLAG = 0b1 << 22;
+    constexpr uint32_t W_FLAG = 0b1 << 21;
+    constexpr uint32_t L_FLAG = 0b1 << 20;
+
+    constexpr uint32_t RN_SHIFT = 16;
+    constexpr uint32_t RN_MASK  = 0b1111 << RN_SHIFT;
+    constexpr uint32_t RD_SHIFT = 12;
+    constexpr uint32_t RD_MASK  = 0b1111 << RD_SHIFT;
+
+    constexpr uint32_t ADDR_MODE_MASK = 0xFFF;
+
+    constexpr uint32_t SHIFT_IMM_SHIFT = 7;
+    constexpr uint32_t SHIFT_IMM_MASK  = 0b11111 << SHIFT_IMM_SHIFT;
+    constexpr uint32_t SHIFT_SHIFT = 5;
+    constexpr uint32_t SHIFT_MASK  = 0b11 << SHIFT_SHIFT;
+    constexpr uint32_t BIT4_MASK  = 0b1 << 4;
+
+    constexpr uint32_t REG_OFF_IDX_MASK = SHIFT_IMM_MASK | SHIFT_MASK | BIT4_MASK;
+
+    constexpr uint32_t RM_MASK     = 0b1111;
+
+    /*
+     * p = 0 post-indexed addressing.
+     *   = 1 the use of offset addressing o rpre-indexed addressing (the w bit determines which)
+     * u = 0 offset is added to base register
+     *   = 1 offset is subtracted from base register
+     * b = 0 word access
+     *   = 1 unsigned byte access
+     * w = 0 p = 0 LDR, LDRB, STR, STRB and normal memory access
+     *       p = 1 LDRBT, LDRT, STRBT, STRT and User mode memory access
+     *   = 1 p = 0 base register is not updated (offset addressing)
+     *       p = 1 base register is updated (pre-indexed addressing)
+     * l = 0 store
+     *   = 1 load
+     */
+    struct Data {
+        bool i{};         // Is by register
+        bool p{};
+        bool u{};
+        bool b{};
+        bool w{};
+        bool l{};
+        uint8_t rn{};
+        uint8_t rd{};
+        uint16_t addrMode{};
+
+        uint8_t rm() const;
+
+        bool isByRegOffIdx() const;
+
+        uint8_t shiftImm() const;
+        uint8_t shift() const;
+        bool isScaledReg() const;
+    };
+
+    struct AddrMode {
+        uint32_t address{};
+        // bool shftCarryOut{};
+    };
+} // namespace LS
+
+// Miscellaneous Loads and Stores
+namespace MLS {
+    constexpr uint32_t P_FLAG = 0b1 << 24;
+    constexpr uint32_t U_FLAG = 0b1 << 23;
+    constexpr uint32_t I_FLAG = 0b1 << 22;  // Immediate offset/index
+    constexpr uint32_t W_FLAG = 0b1 << 21;
+    constexpr uint32_t L_FLAG = 0b1 << 20;
+    constexpr uint32_t S_FLAG = 0b1 << 6;
+    constexpr uint32_t H_FLAG = 0b1 << 5;
+
+    constexpr uint32_t RN_SHIFT = 16;
+    constexpr uint32_t RN_MASK  = 0b1111 << RN_SHIFT;
+    constexpr uint32_t RD_SHIFT = 12;
+    constexpr uint32_t RD_MASK  = 0b1111 << RD_SHIFT;
+
+    constexpr uint32_t ADDR_MODE1_MASK  = 0xF;
+    constexpr uint32_t ADDR_MODE2_SHIFT = 8;
+    constexpr uint32_t ADDR_MODE2_MASK  = 0xF << ADDR_MODE2_SHIFT;
+
+    /*
+     * p = 0
+     *   = 1
+     * u = 0
+     *   = 1
+     * i = 0 Register offset/index
+     *   = 1 Immediate offset/index
+     * w = 0
+     *   = 1
+     * l = 0
+     *   = 1
+     * s = 0
+     *   = 1
+     * h = 0
+     *   = 1
+     */
+    struct Data {
+        bool p{};
+        bool u{};
+        bool i{};   // Immediate offset/index
+        bool w{};
+        bool l{};
+        bool s{};
+        bool h{};
+        uint8_t rn{};
+        uint8_t rd{};
+        uint8_t addrMode1{};
+        uint8_t addrMode2{};
+    };
+}
+
+namespace LSM {
+    constexpr uint32_t P_MASK = 0b1 << 24;
+    constexpr uint32_t U_MASK = 0b1 << 23;
+    constexpr uint32_t S_MASK = 0b1 << 22;
+    constexpr uint32_t W_MASK = 0b1 << 21;
+    constexpr uint32_t L_MASK = 0b1 << 20;
+
+    constexpr uint32_t REG_LIST_MASK = 0xFFFF;
+
+    /*
+     * p = 0 post-indexed addressing.
+     *   = 1 the use of offset addressing o rpre-indexed addressing (the w bit determines which)
+     * u = 0 transfer is made downwards base register
+     *   = 1 transfer is made upwards base register
+     * s = 1 LDMs loading from PC Loads CPSR from SPSR.
+     *       LDMs not loading PC & STM: Uses User mode registers instead of current mode if in privileged mode.
+     *       WARNING: LDM with S bit set is UNPREDICTABLE in User or System mode.
+     * w = 1 update after transfer
+     *       u = 0 increment base register
+     *       u = 1 decrement base register
+     * l = 0 store
+     *   = 1 load
+     */
+    struct Data {
+        bool i{};
+        bool p{};
+        bool u{};
+        bool s{};
+        bool w{};
+        bool l{};
+
+        uint8_t addrMode1{};
+        uint8_t addrMode2{};
+    };
+}
+
 struct Miscellaneous {
     // TODO: Check if miscellaneous instruction has usable fields on ARMv4T
 };
@@ -486,12 +630,15 @@ struct Miscellaneous {
 using InstructionData = std::variant<
     DP::Data,
     B::Data,
+    LS::Data,
+    MLS::Data,
+    LSM::Data,
     Miscellaneous
 >;
 
 struct DecodedInstruction {
     uint32_t rawInstruction;
-    Instruction mnemonic;
+    Instruction instruction;
     Opcode::Cond cond;   // 31-28 - condition
     IEnc::Class clazz;  // 27-24 - class
     InstructionData data;

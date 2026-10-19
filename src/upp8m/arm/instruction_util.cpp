@@ -24,7 +24,7 @@ const MnemonicExtInfo* getMnemonicExtInfo(Opcode::Cond mnemonicExt) {
 }
 
 std::string formatMnemonic(DecodedInstruction instruction) {
-    const auto* mnemonicInfo = getMnemonicInfo(instruction.mnemonic);
+    const auto* mnemonicInfo = getMnemonicInfo(instruction.instruction);
     const auto* mnemonicExtInfo = getMnemonicExtInfo(instruction.cond);
 
     if (!mnemonicInfo || !mnemonicExtInfo) {

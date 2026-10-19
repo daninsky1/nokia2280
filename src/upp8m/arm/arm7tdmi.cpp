@@ -25,7 +25,7 @@ uint8_t DP::Data::rm() const {
     return static_cast<uint8_t>(shifterOperand & RM_MASK);
 }
 
-bool DP::Data::isShftReg() const {
+bool DP::Data::isShftByReg() const {
     return (shifterOperand & BIT7_MASK) == 0 && (shifterOperand & REG_MASK) != 0;
 }
 
@@ -39,6 +39,30 @@ uint8_t DP::Data::shiftImm() const {
 
 uint8_t DP::Data::shift() const {
     return (shifterOperand & SHIFT_MASK) >> SHIFT_SHIFT;
+}
+
+bool DP::Data::isByRegOffIdx() const {
+    return !(shifterOperand & REG_OFF_IDX_MASK);
+}
+
+uint8_t LS::Data::shiftImm() const {
+    return (addrMode & SHIFT_IMM_MASK) >> SHIFT_IMM_SHIFT;
+}
+
+uint8_t LS::Data::shift() const {
+    return (addrMode & SHIFT_MASK) >> SHIFT_SHIFT;
+}
+
+bool LS::Data::isScaledReg() const {
+    return (addrMode & BIT4_MASK) == 0;
+}
+
+uint8_t LS::Data::rm() const {
+    return static_cast<uint8_t>(addrMode & RM_MASK);
+}
+
+bool LS::Data::isByRegOffIdx() const {
+    return (addrMode & REG_OFF_IDX_MASK) == 0;
 }
 
 std::string exceptionDescription(Exception exception) {
@@ -238,7 +262,6 @@ void undefinedInstruction(Arm7tdmi &cpu) {
     cpu.r(GPR::PC, ExceptionVecAddr::UNDEFINED_INSTRUCTION);
 }
 
-
 void softwareInterrupt(Arm7tdmi &cpu) {
     cpu.mode(ProcessorMode::SUPERVISOR);
     cpu.r(GPR::R14, cpu.fetchPC() + 4);      // address of next instruction after the SWI instruction
@@ -250,7 +273,6 @@ void softwareInterrupt(Arm7tdmi &cpu) {
 
     cpu.r(GPR::PC, ExceptionVecAddr::SOFTWARE_INTERRUPT);
 }
-
 
 void prefetchAbort(Arm7tdmi &cpu) {
     cpu.mode(ProcessorMode::ABORT);
@@ -264,7 +286,6 @@ void prefetchAbort(Arm7tdmi &cpu) {
 
     cpu.r(GPR::PC, ExceptionVecAddr::PREFETCH_ABORT);
 }
-
 
 void dataAbort(Arm7tdmi cpu) {
     // TODO: Learn about imprecise data aborts that could lead to an unrecoverable state, hang
@@ -280,7 +301,6 @@ void dataAbort(Arm7tdmi cpu) {
     cpu.r(GPR::PC, ExceptionVecAddr::DATA_ABORT);
 }
 
-
 void irq(Arm7tdmi &cpu) {
     cpu.mode(ProcessorMode::IRQ);
     cpu.r(GPR::R14, cpu.fetchPC() + 8);      // address of next instruction to be executed + 4
@@ -292,7 +312,6 @@ void irq(Arm7tdmi &cpu) {
     cpu.cpsr(cpsr);
     cpu.r(GPR::PC, ExceptionVecAddr::IRQ);
 }
-
 
 void fiq(Arm7tdmi &cpu) {
     cpu.mode(ProcessorMode::FIQ);
@@ -333,21 +352,58 @@ Instruction getDataProcessingMnemonic(DP::Opcode opcode) {
 }
 
 DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
-    DecodedInstruction instruction{};
-    instruction.cond = static_cast<Opcode::Cond>((rawInstruction & IEnc::COND_MASK) >> IEnc::COND_SHIFT);
-    instruction.clazz = static_cast<IEnc::Class>((rawInstruction & IEnc::CLASS_MASK) >> IEnc::CLASS_SHIFT);
+    DecodedInstruction decInstr{};
+    decInstr.cond = static_cast<Opcode::Cond>((rawInstruction & IEnc::COND_MASK) >> IEnc::COND_SHIFT);
+    decInstr.clazz = static_cast<IEnc::Class>((rawInstruction & IEnc::CLASS_MASK) >> IEnc::CLASS_SHIFT);
 
-    switch (instruction.clazz) {
+    switch (decInstr.clazz) {
     case IEnc::Class::C000: {
-        uint32_t mult = (rawInstruction & IEnc::C000::MULT_DEC_MASK);
-        if (mult == IEnc::C000::MULT_VALUE) {
-            // Multiplies, extra load/stores instructions
+        if ((rawInstruction & IEnc::C000::MULT_MLS_DEC_MASK) == IEnc::C000::MLS_VALUE) {
+            if ((rawInstruction & (MLS::S_FLAG | MLS::H_FLAG)) == 0) {
+                // Multiplie instruction
+                decInstr.type = InstructionType::DATA_PROCESSING;
+                return decInstr;
+            }
+            // Miscellaneous loads/stores instructions
+            MLS::Data data{};
+            data.p = (rawInstruction & MLS::P_FLAG) != 0;
+            data.u = (rawInstruction & MLS::U_FLAG) != 0;
+            data.i = (rawInstruction & MLS::I_FLAG) != 0;
+            data.w = (rawInstruction & MLS::W_FLAG) != 0;
+            data.l = (rawInstruction & MLS::L_FLAG) != 0;
+            data.s = (rawInstruction & MLS::S_FLAG) != 0;
+            data.h = (rawInstruction & MLS::H_FLAG) != 0;
+            data.rn = static_cast<uint8_t>((rawInstruction & MLS::RN_MASK) >> MLS::RN_SHIFT);
+            data.rd = static_cast<uint8_t>((rawInstruction & MLS::RD_MASK) >> MLS::RD_SHIFT);
+            data.addrMode1 = rawInstruction & MLS::ADDR_MODE1_MASK;
+            data.addrMode2 = (rawInstruction & MLS::ADDR_MODE2_MASK) >> MLS::ADDR_MODE2_SHIFT;
+
+            /* The L, S and H bits, combinations:
+             * L=0, S=0, H=1Store halfword.
+             * L=0, S=1, H=0Load doubleword.
+             * L=0, S=1, H=1Store doubleword.
+             * L=1, S=0, H=1Load unsigned halfword.
+             * L=1, S=1, H=0Load signed byte.
+             * L=1, S=1, H=1Load signed halfword.
+             */
+            if (data.s) {
+                if (!data.l) {
+                    // TODO: Decode as undefined?
+                    CRASH_THIS_FUCKER("Unsupported instruction ARMv4T. Load and Store double word");
+                }
+                decInstr.instruction = data.h ? Instruction::LDRSH : Instruction::LDRSB;
+            } else if (data.h) {
+                decInstr.instruction = data.l ? Instruction::LDRH : Instruction::STRH;
+            }
+            decInstr.type = InstructionType::LOAD_STORE;
+            decInstr.data = data;
+            return decInstr;
         }
         uint32_t misc = (rawInstruction & IEnc::C000::MISC_DEC_MASK);
         if (misc == IEnc::C000::MISC_VALUE) {
             // Miscellaneous instructions
             // TODO: Miscellaneous instructions
-            return instruction;
+            return decInstr;
         }
         // Data processing instructions
         DP::Data data;
@@ -358,22 +414,21 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
         data.rd = static_cast<uint8_t>((rawInstruction & DP::RD_MASK) >> DP::RD_SHIFT);
         data.shifterOperand = static_cast<uint16_t>(rawInstruction & DP::SHIFTER_MASK);
 
-        instruction.type = InstructionType::DATA_PROCESSING;
-        instruction.mnemonic = getDataProcessingMnemonic(data.opcode);
-        instruction.data = data;
-        return instruction;
-        break;
+        decInstr.type = InstructionType::DATA_PROCESSING;
+        decInstr.instruction = getDataProcessingMnemonic(data.opcode);
+        decInstr.data = data;
+        return decInstr;
     }
     case IEnc::Class::C001: {
         uint32_t decode = (rawInstruction & IEnc::C001::DECODE_MASK);
         if (decode == IEnc::C001::UNDEFINED_VALUE) {
             // Undefined instruction
-            instruction.type = InstructionType::UNDEFINED;
-            return instruction;
+            decInstr.type = InstructionType::UNDEFINED;
+            return decInstr;
         }
         if (decode == IEnc::C001::MISR_VALUE) {
             // Move immediate to status register
-            return instruction;
+            return decInstr;
         }
         DP::Data data;
         data.i  = (rawInstruction & DP::I_FLAG) != 0;
@@ -383,63 +438,109 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
         data.rd = static_cast<uint8_t>((rawInstruction & DP::RD_MASK) >> DP::RD_SHIFT);
         data.shifterOperand = static_cast<uint16_t>(rawInstruction & DP::SHIFTER_MASK);
 
-        instruction.type = InstructionType::DATA_PROCESSING;
-        instruction.mnemonic = getDataProcessingMnemonic(data.opcode);
-        instruction.data = data;
-        return instruction;
-        break;
+        decInstr.type = InstructionType::DATA_PROCESSING;
+        decInstr.instruction = getDataProcessingMnemonic(data.opcode);
+        decInstr.data = data;
+        return decInstr;
     }
-    case IEnc::Class::LSIO: {
+    case IEnc::Class::LS: {
         // Load/store immediate offset
-        instruction.type = InstructionType::LOAD_STORE;
-        bool p = (rawInstruction & IEnc::C010_LSIO::P_MASK) != 0;
-        bool u = (rawInstruction & IEnc::C010_LSIO::U_MASK) != 0;
-        bool b = (rawInstruction & IEnc::C010_LSIO::B_MASK) != 0;
-        bool w = (rawInstruction & IEnc::C010_LSIO::W_MASK) != 0;
-        bool l = (rawInstruction & IEnc::C010_LSIO::L_MASK) != 0;
+        // Load/store register offset
+        LS::Data data{};
+        data.i = false;         // bit-25 of the instruction
+        data.p = (rawInstruction & LS::P_FLAG) != 0;
+        data.u = (rawInstruction & LS::U_FLAG) != 0;
+        data.b = (rawInstruction & LS::B_FLAG) != 0;
+        data.w = (rawInstruction & LS::W_FLAG) != 0;
+        data.l = (rawInstruction & LS::L_FLAG) != 0;
+        data.rn = static_cast<uint8_t>((rawInstruction & LS::RN_MASK) >> LS::RN_SHIFT);
+        data.rd = static_cast<uint8_t>((rawInstruction & LS::RD_MASK) >> LS::RD_SHIFT);
+        data.addrMode = rawInstruction & LS::ADDR_MODE_MASK;
 
-        return instruction;
-        break;
+        bool translation = !data.p && data.w;
+        if (translation && data.b) {
+            decInstr.instruction = data.l ? Instruction::LDRBT : Instruction::STRBT;
+        } else if (translation) {
+            decInstr.instruction = data.l ? Instruction::LDRT : Instruction::STRT;
+        } else if (data.b) {
+            decInstr.instruction = data.l ? Instruction::LDRB : Instruction::STRB;
+        } else {
+            decInstr.instruction = data.l ? Instruction::LDR : Instruction::STR;
+        }
+
+        decInstr.type = InstructionType::LOAD_STORE;
+        decInstr.data = data;
+        return decInstr;
     }
     case IEnc::Class::C011: {
         auto mediaInstruction = (rawInstruction & IEnc::C011::MEDIA_MASK);
         if (mediaInstruction) {
             // Media instructions
             // NOTE: Undefined instruction on ARMv4
-            instruction.type = InstructionType::UNDEFINED;
-            return instruction;
+            decInstr.type = InstructionType::UNDEFINED;
+            return decInstr;
         }
 
         auto archUndef = (rawInstruction & IEnc::C011::ARCH_UNDEF_MASK);
         if (archUndef == IEnc::C011::ARCH_UNDEF_VALUE) {
-            instruction.type = InstructionType::UNDEFINED;
-            return instruction;
+            decInstr.type = InstructionType::UNDEFINED;
+            return decInstr;
         }
         // Load/store register offset
-        instruction.type = InstructionType::LOAD_STORE;
-        return instruction;
-        break;
+        LS::Data data{};
+        data.i = true;         // bit-25 of the instruction
+        data.p = (rawInstruction & LS::P_FLAG) != 0;
+        data.u = (rawInstruction & LS::U_FLAG) != 0;
+        data.b = (rawInstruction & LS::B_FLAG) != 0;
+        data.w = (rawInstruction & LS::W_FLAG) != 0;
+        data.l = (rawInstruction & LS::L_FLAG) != 0;
+        data.rn = static_cast<uint8_t>((rawInstruction & LS::RN_MASK) >> LS::RN_SHIFT);
+        data.rd = static_cast<uint8_t>((rawInstruction & LS::RD_MASK) >> LS::RD_SHIFT);
+        data.addrMode = rawInstruction & LS::ADDR_MODE_MASK;
+
+        bool translation = !data.p && data.w;
+        if (translation && data.b) {
+            decInstr.instruction = data.l ? Instruction::LDRBT : Instruction::STRBT;
+        } else if (translation) {
+            decInstr.instruction = data.l ? Instruction::LDRT : Instruction::STRT;
+        } else if (data.b) {
+            decInstr.instruction = data.l ? Instruction::LDRB : Instruction::STRB;
+        } else {
+            decInstr.instruction = data.l ? Instruction::LDR : Instruction::STR;
+        }
+
+        decInstr.type = InstructionType::LOAD_STORE;
+        decInstr.data = data;
+        return decInstr;
     }
-    case IEnc::Class::LSMU: {
+    case IEnc::Class::LSM: {
         // Load/store multiple
-        instruction.type = InstructionType::LOAD_STORE;
-        return instruction;
-        break;
+        decInstr.type = InstructionType::LOAD_STORE;
+        LSM::Data data{};
+        data.p = (rawInstruction & LSM::P_MASK) != 0;
+        data.u = (rawInstruction & LSM::U_MASK) != 0;
+        data.s = (rawInstruction & LSM::S_MASK) != 0;
+        data.w = (rawInstruction & LSM::W_MASK) != 0;
+        data.l = (rawInstruction & LSM::L_MASK) != 0;
+        // data.rList = rawInstruction & LSM::REG_LIST_MASK;
+
+        decInstr.data = data;
+        return decInstr;
     }
     case IEnc::Class::BRANCH: {
-        instruction.type = InstructionType::BRANCH;
-        instruction.mnemonic = Instruction::B_BL;
+        decInstr.type = InstructionType::BRANCH;
+        decInstr.instruction = Instruction::B_BL;
         B::Data data;
         data.l = rawInstruction & B::L_FLAG;
         data.signedImmed24 = rawInstruction & B::OFFSET_MASK;
-        instruction.data = data;
-        return instruction;
+        decInstr.data = data;
+        return decInstr;
         break;
     }
     case IEnc::Class::COPLSDRT: {
         // Coprocessor load/store and double register transfers
         // TODO: Coprocessor load/store and double register transfers instruction
-        instruction.type = InstructionType::COPROCESSOR;
+        decInstr.type = InstructionType::COPROCESSOR;
 
         bool p = (rawInstruction & IEnc::C110_COP::P_FLAG) != 0;
         bool u = (rawInstruction & IEnc::C110_COP::U_FLAG) != 0;
@@ -449,8 +550,8 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
 
         if (!p && !u && !w) {
             // "Coprocessor instruction extension space is UNDEFINED on ARMv4"
-            instruction.type = InstructionType::UNDEFINED;
-            return instruction;
+            decInstr.type = InstructionType::UNDEFINED;
+            return decInstr;
         }
         break;
     }
@@ -458,11 +559,11 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
         auto swi = (rawInstruction & IEnc::C111::SWI::SWI_FLAG);
         if (swi == IEnc::C111::SWI::SWI_FLAG) {
             // SWI Instruction
-            instruction.type = InstructionType::EXCEPTION_GENERATING;
-            return instruction;
+            decInstr.type = InstructionType::EXCEPTION_GENERATING;
+            return decInstr;
         }
         // NOTE: Not implemented yet. I don't know if COPROCESSOR instruction is needed for DCT4
-        instruction.type = InstructionType::COPROCESSOR;
+        decInstr.type = InstructionType::COPROCESSOR;
         auto coprocessorRegisterTransfer = (rawInstruction & IEnc::C111::COP::RT_FLAG);
         if (coprocessorRegisterTransfer) {
             // Coprocessor register transfers
@@ -472,15 +573,15 @@ DecodedInstruction decodeInstruction(uint32_t rawInstruction) {
             // TODO: Coprocessor data processing instruction
         }
 
-        return instruction;
+        return decInstr;
         break;
     }
     default:
         std::cerr << "Invalid instruction class" << std::endl;
         std::abort();
     }
-    instruction.type = InstructionType::UNDEFINED;
-    return instruction;
+    decInstr.type = InstructionType::UNDEFINED;
+    return decInstr;
 }
 
 void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction);
@@ -602,11 +703,10 @@ static DP::ShftOperand executeShftOperand(const Arm7tdmi &cpu, const DP::Data &d
         }
     } else {
         uint32_t rm = cpu.r(dp.rm());
-        bool isShftReg= dp.isShftReg();
+        bool isShftReg= dp.isShftByReg();
         uint8_t shift = dp.shift();
         uint8_t shiftImm = dp.shiftImm();
-        bool isRegister = !isShftReg && !shift && !shiftImm;
-        if (isRegister) {
+        if (dp.isByRegOffIdx()) {
             sftOp.operand = rm;
             sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
         } else if (isShftReg) {
@@ -739,7 +839,7 @@ static DP::ShftOperand executeShftOperand(const Arm7tdmi &cpu, const DP::Data &d
 }
 
 void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
-    switch (instruction.mnemonic) {
+    switch (instruction.instruction) {
     case Instruction::AND: {
         auto& dp = std::get<DP::Data>(instruction.data);
         DP::ShftOperand shftOperand = executeShftOperand(cpu, dp);
@@ -1146,19 +1246,163 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
     case Instruction::SETEND:
         std::cerr << "Instruction NOT implemented!\n";
         break;
-    case Instruction::LDR:
-        std::cerr << "Instruction NOT implemented!\n";
+    case Instruction::LDR: {
+        auto& ls = std::get<LS::Data>(instruction.data);
+
+        uint32_t rn = cpu.r(ls.rn);
+        uint32_t dest{};
+
+        if (ls.rd == GPR::PC) {
+            cpu.copySpsr2Cpsr();
+        } else {
+            // const uint32_t nzc = (dest & PSR::N)
+            //     | ((dest == 0) << PSR::Z_SHIFT)
+            //     | (shftOperand.shftCarryOut << PSR::C_SHIFT);
+            // cpu.cpsr((cpu.cpsr() & ~PSR::NZC) | nzc);
+        }
+
+        uint32_t address{};
+        if (ls.i) {
+            uint32_t rm = cpu.r(ls.rm());
+            uint8_t shift = ls.shift();
+            uint8_t shiftImm = ls.shiftImm();
+            if (ls.isByRegOffIdx()) {
+                // Registeer
+                address = ls.u ? rn + rm : rn - rm;
+            } else if (ls.isScaledReg()) {
+            //     // Scaled register;
+            //     if (ls.rd == GPR::PC || ls.rm() == GPR::PC || ls.rn == GPR::PC || ls.rs() == GPR::PC) {
+            //         CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
+            //     }
+            //     uint8_t rs = static_cast<uint8_t>(cpu.r(ls.rs()));      // Register shift
+            //     switch (shift) {
+            //     case DP::Shift::LSL: {
+            //         if (rs == 0) {
+            //             sftOp.operand = rm;
+            //             sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+            //         } else if (rs < 32) {
+            //             sftOp.operand = rm << rs;
+            //             sftOp.shftCarryOut = (rm & (1 << (32 - rs))) != 0;
+            //         } else if (rs == 32) {
+            //             sftOp.operand = 0;
+            //             sftOp.shftCarryOut = (rm & 0b1) != 0;
+            //         } else if (rs > 32) {
+            //             sftOp.operand = 0;
+            //             sftOp.shftCarryOut = false;
+            //         }
+            //         break;
+            //     }
+            //     case DP::Shift::LSR: {
+            //         if (rs == 0) {
+            //             sftOp.operand = rm;
+            //             sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+            //         } else if (rs < 32) {
+            //             sftOp.operand = rm >> rs;
+            //             sftOp.shftCarryOut = (rm & (1 << (rs - 1))) != 0;
+            //         } else if (rs == 32) {
+            //             sftOp.operand = 0;
+            //             sftOp.shftCarryOut = (rm & (0b1 << 31)) != 0;
+            //         } else if (rs > 32) {
+            //             sftOp.operand = 0;
+            //             sftOp.shftCarryOut = false;
+            //         }
+            //         break;
+            //     }
+            //     case DP::Shift::ASR: {
+            //         if (rs == 0) {
+            //             sftOp.operand = rm;
+            //             sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+            //         } else if (rs < 32) {
+            //             sftOp.operand = static_cast<uint32_t>(
+            //                 static_cast<int32_t>(rm) >> rs
+            //             );
+            //             sftOp.shftCarryOut = (rm & (1 << (rs - 1))) != 0;
+            //         } else {
+            //             bool sign = (rm & Bit::WORD_MSB_MASK) != 0;
+            //             if (sign) {
+            //                 sftOp.operand = 0xFFFFFFFF;
+            //             } else {
+            //                 sftOp.operand = 0;
+            //             }
+            //             sftOp.shftCarryOut = sign;
+            //         }
+            //         break;
+            //     }
+            //     case DP::Shift::RTR: {
+            //         uint8_t rot = rs & 0b11111;
+            //         if (rs == 0) {
+            //             sftOp.operand = rm;
+            //             sftOp.shftCarryOut = (cpu.cpsr() & PSR::C) != 0;
+            //         } else if (rot == 0) {
+            //             sftOp.operand = rm;
+            //             sftOp.shftCarryOut = (rm & (0b1 << 31)) != 0;
+            //         } else if (rot > 0) {
+            //             sftOp.operand = std::rotr(rm, rot);
+            //             sftOp.shftCarryOut = (rm & (1 << (rot - 1))) != 0;
+            //         }
+            //         break;
+            //     }
+            //     default:
+            //         CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
+            //     }
+            } else {
+                // // Shift by immediate;
+                // switch (shift) {
+                // case DP::Shift::LSL: {
+                //     sftOp.operand = rm << shiftImm;
+                //     sftOp.shftCarryOut = (rm & (1 << (32 - shiftImm))) != 0;
+                //     break;
+                // }
+                // case DP::Shift::LSR: {
+                //     if (shiftImm == 0) {
+                //         sftOp.operand = 0;
+                //         sftOp.shftCarryOut = (rm & Bit::WORD_MSB_MASK) != 0;
+                //     } else {
+                //         sftOp.operand = rm >> shiftImm;
+                //         sftOp.shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
+                //     }
+                //     break;
+                // }
+                // case DP::Shift::ASR: {
+                //     if (shiftImm == 0) {
+                //         bool sign = (rm & Bit::WORD_MSB_MASK) != 0;
+                //         sftOp.shftCarryOut = sign;
+                //         if (sign) {
+                //             sftOp.operand = 0xFFFFFFFF;
+                //         } else {
+                //             sftOp.operand = 0;
+                //         }
+                //     } else {
+                //         sftOp.operand = static_cast<uint32_t>(
+                //             static_cast<int32_t>(rm) >> shiftImm
+                //         );
+                //         sftOp.shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
+                //     }
+                //     break;
+                // }
+                // case DP::Shift::RTR: {
+                //     if (shiftImm == 0) {
+                //         sftOp.operand = ((cpu.cpsr() & PSR::C) != 0 ? Bit::WORD_MSB_MASK : 0) | (rm >> 1);
+                //         sftOp.shftCarryOut = (rm & 1) != 0;
+                //     } else {
+                //         sftOp.operand = std::rotr(rm, shiftImm);
+                //         sftOp.shftCarryOut = (rm & (1 << (shiftImm - 1))) != 0;
+                //     }
+                //     break;
+                // }
+                // default:
+                //     CRASH_THIS_FUCKER(UNPREDICTABLE_MSG);
+                // }
+            }
+        }
+
+        cpu.r(ls.rd, dest);
         break;
+    }
     case Instruction::LDRB:
         std::cerr << "Instruction NOT implemented!\n";
         break;
     case Instruction::LDRBT:
-        std::cerr << "Instruction NOT implemented!\n";
-        break;
-    case Instruction::LDRD:
-        std::cerr << "Instruction NOT implemented!\n";
-        break;
-    case Instruction::LDREX:
         std::cerr << "Instruction NOT implemented!\n";
         break;
     case Instruction::LDRH:
@@ -1180,12 +1424,6 @@ void executeInstruction(Arm7tdmi &cpu, DecodedInstruction& instruction) {
         std::cerr << "Instruction NOT implemented!\n";
         break;
     case Instruction::STRBT:
-        std::cerr << "Instruction NOT implemented!\n";
-        break;
-    case Instruction::STRD:
-        std::cerr << "Instruction NOT implemented!\n";
-        break;
-    case Instruction::STREX:
         std::cerr << "Instruction NOT implemented!\n";
         break;
     case Instruction::STRH:
